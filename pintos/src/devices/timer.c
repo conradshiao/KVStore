@@ -96,7 +96,7 @@ timer_sleep (int64_t ticks)
   while (timer_elapsed (start) < ticks) {
     continue;
   }
-  thread_unblock();
+  thread_unblock(thread_current());
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
