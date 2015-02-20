@@ -90,10 +90,17 @@ void
 timer_sleep (int64_t ticks) 
 {
   int64_t start = timer_ticks ();
-
   ASSERT (intr_get_level () == INTR_ON);
+
+  struct semaphore_elem thread_sem;
+  sema_init(&thread_sem, 1);
+  sema_down(&thread_sem);
   while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+    //// thread_yield ();
+    continue;
+  sema_up(&thread_sem);
+
+  /* thread_block and thread_unblock do not seem to work here */
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
