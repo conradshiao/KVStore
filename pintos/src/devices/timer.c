@@ -91,13 +91,19 @@ timer_sleep (int64_t ticks)
 {
   int64_t start = timer_ticks ();
   ASSERT (intr_get_level () == INTR_ON);
-
+  // thread_current()->wakeup = ticks;
   struct semaphore_elem thread_sem;
   sema_init(&thread_sem, 1);
+  // or should this be initialized to num of concurrent threads?
   sema_down(&thread_sem);
+  // or for each thread it calls sema_down
+  // and each thread added to waiting
   while (timer_elapsed (start) < ticks) 
     //// thread_yield ();
     continue;
+  // on every timer interrupt (when does that happen??? inside while?)
+  // should look at &thread_sem->waiters (waiting list of threads)
+  // if elapsed time > wakeup for a thread, make runnable
   sema_up(&thread_sem);
 
   /* thread_block and thread_unblock do not seem to work here */
