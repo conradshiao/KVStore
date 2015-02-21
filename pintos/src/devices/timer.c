@@ -25,7 +25,7 @@ static int64_t ticks;
 static unsigned loops_per_tick;
 
 // static struct semaphore sema;
-
+ 
 static struct list sleeping_semas;
 
 static intr_handler_func timer_interrupt;
