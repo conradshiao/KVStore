@@ -24,6 +24,10 @@ static int64_t ticks;
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
 
+// static struct semaphore sema;
+
+static struct list sleeping_semas;
+
 static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
@@ -35,6 +39,7 @@ static void real_time_delay (int64_t num, int32_t denom);
 void
 timer_init (void) 
 {
+  list_init(&sleeping_semas);
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
@@ -90,13 +95,24 @@ void
 timer_sleep (int64_t ticks) 
 {
   int64_t start = timer_ticks ();
-
   ASSERT (intr_get_level () == INTR_ON);
-  thread_block();
-  while (timer_elapsed (start) < ticks) {
+  
+  // sema_init(&sema, 1);
+  struct semaphore victor_sema;
+  sema_init(&victor_sema, 1);
+  sema_down(&victor_sema);
+  list_push_front(&sleeping_semas, &victor_sema);
+  // sema_down(&sema);
+  while (timer_elapsed (start) < ticks) 
     continue;
-  }
-  thread_unblock();
+  // on every timer interrupt (when does that happen??? inside while?)
+  // should look at &thread_sem->waiters (waiting list of threads)
+  // if elapsed time > wakeup for a thread, make runnable
+
+  // retrieve the same sema as this victor_sema and do sema_up
+  // sema_up(&sema);
+  list_remove(&victor_sema);
+  sema_up(&victor_sema);
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -125,7 +141,6 @@ timer_nsleep (int64_t ns)
 
 /* Busy-waits for approximately MS milliseconds.  Interrupts need
    not be turned on.
-
    Busy waiting wastes CPU cycles, and busy waiting with
    interrupts off for the interval between timer ticks or longer
    will cause timer ticks to be lost.  Thus, use timer_msleep()
@@ -138,7 +153,6 @@ timer_mdelay (int64_t ms)
 
 /* Sleeps for approximately US microseconds.  Interrupts need not
    be turned on.
-
    Busy waiting wastes CPU cycles, and busy waiting with
    interrupts off for the interval between timer ticks or longer
    will cause timer ticks to be lost.  Thus, use timer_usleep()
@@ -151,7 +165,6 @@ timer_udelay (int64_t us)
 
 /* Sleeps execution for approximately NS nanoseconds.  Interrupts
    need not be turned on.
-
    Busy waiting wastes CPU cycles, and busy waiting with
    interrupts off for the interval between timer ticks or longer
    will cause timer ticks to be lost.  Thus, use timer_nsleep()
@@ -198,7 +211,6 @@ too_many_loops (unsigned loops)
 
 /* Iterates through a simple loop LOOPS times, for implementing
    brief delays.
-
    Marked NO_INLINE because code alignment can significantly
    affect timings, so that if this function was inlined
    differently in different places the results would be difficult
