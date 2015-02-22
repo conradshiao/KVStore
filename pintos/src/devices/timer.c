@@ -24,9 +24,8 @@ static int64_t ticks;
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
 
-// static struct semaphore sema;
- 
-static struct list sleeping_semas;
+static struct list sleeping_threads;
+
 
 static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
@@ -42,9 +41,7 @@ timer_init (void)
   list_init(&sleeping_semas);
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
-  // MY CODE BELOW
-  sema_init(&sema, 1);
-  // list_init(&sleeping_threads);
+  list_init(&sleeping_threads);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -98,12 +95,15 @@ timer_elapsed (int64_t then)
   return timer_ticks () - then;
 }
 
-// bool
-// compareTicks(const struct list_elem *a, const struct list_elem *b, void *aux) {
-//   struct thread *x = list_entry(a, struct thread, elem);
-//   struct thread *y = list_entry(b, struct thread, elem);
-//   return x -> wakeup_time < y -> wakeup_time;
-// }
+bool compare_wakeup(const struct list_elem *a,
+                    const struct list_elem *b, void *aux) {
+  if (aux != NULL) {
+    printf("lsdkfj\n");
+  }
+  struct thread *first = list_entry(a, struct thread, elem);
+  struct thread *second = list_entry(b, struct thread, elem);
+  return (first -> wakeup_time) < (second -> wakeup_time);
+}
 
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
    be turned on. */
@@ -111,24 +111,15 @@ void
 timer_sleep (int64_t ticks) 
 {
   int64_t start = timer_ticks ();
-  ASSERT (intr_get_level () == INTR_ON);
-  
-  // sema_init(&sema, 1);
-  struct semaphore victor_sema;
-  sema_init(&victor_sema, 1);
-  sema_down(&victor_sema);
-  list_push_front(&sleeping_semas, &victor_sema);
-  // sema_down(&sema);
-  while (timer_elapsed (start) < ticks) 
-    continue;
-  // on every timer interrupt (when does that happen??? inside while?)
-  // should look at &thread_sem->waiters (waiting list of threads)
-  // if elapsed time > wakeup for a thread, make runnable
 
-  // retrieve the same sema as this victor_sema and do sema_up
-  // sema_up(&sema);
-  list_remove(&victor_sema);
-  sema_up(&victor_sema);
+  ASSERT (intr_get_level () == INTR_ON);
+  enum intr_level prev = intr_disable();
+
+  struct thread *curr_thread = thread_current();
+  curr_thread -> wakeup_time = start + ticks;
+  list_insert_ordered(&sleeping_threads, &curr_thread -> elem, &compare_wakeup, NULL);
+  intr_set_level(prev);
+  sema_down(&curr_thread -> timer_semaphore);
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -204,20 +195,17 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
-  struct list_elem* e;
-  printf("hitting interrupt\n");
-  for (e = list_begin(&(sema.waiters)); e != list_end(&(sema.waiters)); e = list_next(e)) {
-    struct thread *t = list_entry(e, struct thread, elem);
-    if (t -> wakeup_time <= timer_ticks()) {
-      sema_up(&sema);
-    } else {
-      break;
-    }
-  }
 
-  // while (list_entry(e, struct sleeping_thread, element) -> wakeup_time <= timer_ticks()) {
-  //   sema_up(&sema);
-  // }
+  while (!list_empty(&sleeping_threads)) {
+    struct list_elem *e = list_begin(&sleeping_threads);
+    struct thread *curr_thread = list_entry(e, struct thread, elem);
+    if (curr_thread -> wakeup_time > timer_ticks()) {
+      break;
+    } else {
+      sema_up(&curr_thread -> timer_semaphore);
+      list_pop_front(&sleeping_threads);
+    }
+  }    
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
@@ -239,7 +227,8 @@ too_many_loops (unsigned loops)
   return start != ticks;
 }
 
-/* Iterates through a simple loop LOOPS times, for implementing
+/* Iterates through a simple loop LOOPS times, for implementingD
+
    brief delays.
    Marked NO_INLINE because code alignment can significantly
    affect timings, so that if this function was inlined
