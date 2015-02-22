@@ -96,7 +96,6 @@ struct thread
     struct list_elem elem;              /* List element. */
     int64_t wakeup_time;                /* Time this thread needs to wake up, given that it's sleeping. */
 
-    int64_t wakeup_time;
     struct semaphore timer_semaphore;
 
 #ifdef USERPROG
