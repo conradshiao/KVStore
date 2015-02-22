@@ -109,14 +109,12 @@ bool compare_wakeup(const struct list_elem *a,
 void
 timer_sleep (int64_t ticks) 
 {
-  printf("hitting sleep here?");
-  int64_t start = timer_ticks ();
 
   ASSERT (intr_get_level () == INTR_ON);
   enum intr_level prev = intr_disable();
 
   struct thread *curr_thread = thread_current();
-  curr_thread -> wakeup_time = start + ticks;
+  curr_thread -> wakeup_time = timer_ticks() + ticks;
   list_insert_ordered(&sleeping_threads, &curr_thread -> elem, &compare_wakeup, NULL);
   intr_set_level(prev);
   sema_down(&curr_thread -> timer_semaphore);
