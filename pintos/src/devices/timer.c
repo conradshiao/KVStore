@@ -37,6 +37,7 @@ static void real_time_delay (int64_t num, int32_t denom);
 void
 timer_init (void) 
 {
+  printf("INITING HERE\n");
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
   list_init(&sleeping_threads);
@@ -76,6 +77,12 @@ timer_ticks (void)
   enum intr_level old_level = intr_disable ();
   int64_t t = ticks;
   intr_set_level (old_level);
+
+  // // modify code here
+  // struct list_elem* e = list_begin(&(sema -> waiters));
+  // while (list_entry(e, struct sleeping_thread, element) -> wakeup_time <= t) {
+  //   sema_up(&sema);
+  // }
   return t;
 }
 
@@ -102,6 +109,7 @@ bool compare_wakeup(const struct list_elem *a,
 void
 timer_sleep (int64_t ticks) 
 {
+  printf("hitting sleep here?");
   int64_t start = timer_ticks ();
 
   ASSERT (intr_get_level () == INTR_ON);
