@@ -24,6 +24,8 @@ static int64_t ticks;
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
 
+static struct list sleeping_threads;
+
 static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
@@ -37,6 +39,7 @@ timer_init (void)
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+  list_init(&sleeping_threads);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -84,6 +87,16 @@ timer_elapsed (int64_t then)
   return timer_ticks () - then;
 }
 
+bool compare_wakeup(const struct list_elem *a,
+                    const struct list_elem *b, void *aux) {
+  if (aux != NULL) {
+    printf("lsdkfj\n");
+  }
+  struct thread *first = list_entry(a, struct thread, elem);
+  struct thread *second = list_entry(b, struct thread, elem);
+  return (first -> wakeup_time) < (second -> wakeup_time);
+}
+
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
    be turned on. */
 void
@@ -92,8 +105,13 @@ timer_sleep (int64_t ticks)
   int64_t start = timer_ticks ();
 
   ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+  enum intr_level prev = intr_disable();
+
+  struct thread *curr_thread = thread_current();
+  curr_thread -> wakeup_time = start + ticks;
+  list_insert_ordered(&sleeping_threads, &curr_thread -> elem, &compare_wakeup, NULL);
+  intr_set_level(prev);
+  sema_down(&curr_thread -> timer_semaphore);
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -172,6 +190,17 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
+
+  while (!list_empty(&sleeping_threads)) {
+    struct list_elem *e = list_begin(&sleeping_threads);
+    struct thread *curr_thread = list_entry(e, struct thread, elem);
+    if (curr_thread -> wakeup_time > timer_ticks()) {
+      break;
+    } else {
+      sema_up(&curr_thread -> timer_semaphore);
+      list_pop_front(&sleeping_threads);
+    }
+  }    
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
