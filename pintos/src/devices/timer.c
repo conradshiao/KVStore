@@ -37,7 +37,6 @@ static void real_time_delay (int64_t num, int32_t denom);
 void
 timer_init (void) 
 {
-  printf("INITING HERE\n");
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
   list_init(&sleeping_threads);
@@ -115,7 +114,9 @@ timer_sleep (int64_t ticks)
 
   struct thread *curr_thread = thread_current();
   curr_thread -> wakeup_time = timer_ticks() + ticks;
+  printf("STARTING timer_sleep\n");
   list_insert_ordered(&sleeping_threads, &curr_thread -> elem, &compare_wakeup, NULL);
+  printf("SUCCESSFUL timer_sleep\n");
   intr_set_level(prev);
   sema_down(&curr_thread -> timer_semaphore);
 }
@@ -197,14 +198,18 @@ timer_interrupt (struct intr_frame *args UNUSED)
   ticks++;
   thread_tick ();
 
+  struct list_elem *e;
+  struct thread *curr_thread;
   while (!list_empty(&sleeping_threads)) {
-    struct list_elem *e = list_begin(&sleeping_threads);
-    struct thread *curr_thread = list_entry(e, struct thread, elem);
+    e = list_begin(&sleeping_threads);
+    curr_thread = list_entry(e, struct thread, elem);
     if (curr_thread -> wakeup_time > timer_ticks()) {
       break;
     } else {
       sema_up(&curr_thread -> timer_semaphore);
+      printf("STARTING timer_interrupt\n");
       list_pop_front(&sleeping_threads);
+      printf("SUCCESSFUL timer_interrupt\n");
     }
   }    
 }
