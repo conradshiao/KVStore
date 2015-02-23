@@ -38,7 +38,6 @@ static void real_time_delay (int64_t num, int32_t denom);
 void
 timer_init (void) 
 {
-  list_init(&sleeping_semas);
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
   list_init(&sleeping_threads);
@@ -111,6 +110,7 @@ void
 timer_sleep (int64_t ticks) 
 {
   int64_t start = timer_ticks ();
+  
   ASSERT (intr_get_level () == INTR_ON);
   enum intr_level prev = intr_disable();
 
