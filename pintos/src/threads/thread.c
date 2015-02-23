@@ -337,7 +337,7 @@ priority_less(const struct list_elem *a,
 {
   struct thread *first = list_entry(a, struct thread, elem);
   struct thread *second = list_entry(b, struct thread, elem);
-  return (first->priority) < (second->priority);
+  return first->priority < second->priority;
 }
 
 
@@ -347,18 +347,8 @@ thread_set_priority (int new_priority)
 {
   thread_current ()->priority = new_priority;
   
-  struct list_elem *max_elem = list_max(&ready_list, &priority_less, NULL);
-  
-  // struct list_elem *e;
-
-  // for (e = list_begin (&ready_list); e != list_end (&ready_list); e = list_next (e))
-  // {
-  //     struct thread *t = list_entry (e, struct thread, elem);
-  //     printf("PRIORITY: %d\n", t->priority);
-  // }
+  struct list_elem *max_elem = list_max(&ready_list, &priority_less, NULL); 
   struct thread *t = list_entry(max_elem, struct thread, elem);
-  // printf("MAX PRIORITY: %d\n", t -> priority);
-  // printf("NEW PRIORITY: %d\n", new_priority);
   if (t -> priority > new_priority) {
     thread_yield();
   }
@@ -519,12 +509,10 @@ next_thread_to_run (void)
   if (list_empty (&ready_list))
     return idle_thread;
   else {
-
     struct list_elem *max_elem = list_max(&ready_list, &priority_less, NULL);
     list_remove(max_elem);
     return list_entry(max_elem, struct thread, elem);
   }
-    // return list_entry (list_pop_front (&ready_list), struct thread, elem);
 }
 
 /* Completes a thread switch by activating the new thread's page
