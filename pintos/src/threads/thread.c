@@ -70,6 +70,7 @@ static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
+bool priority_less(const struct list_elem *a, const struct list_elem *b, void *aux);
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -95,7 +96,6 @@ thread_init (void)
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
-  // sema_init(&initial_thread->timer_semaphore, 0);
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -178,6 +178,11 @@ thread_create (const char *name, int priority,
   /* Initialize thread. */
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
+
+  // OUR CODE BELOW, yield current thread if currently made thread is of higher priority?? 
+  if (priority > thread_current()-> priority) {
+    thread_yield();
+  }
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
@@ -330,7 +335,11 @@ thread_foreach (thread_action_func *func, void *aux)
     }
 }
 
-
+// OUR CODE BELOW
+/* Ordering function based on the priority field of threads.
+   Returns true iff the priority of the thread constructed from a
+   is less than that of b.
+*/
 bool
 priority_less(const struct list_elem *a,
               const struct list_elem *b, void *aux)
@@ -340,7 +349,6 @@ priority_less(const struct list_elem *a,
   return first->priority < second->priority;
 }
 
-
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) 
@@ -348,11 +356,10 @@ thread_set_priority (int new_priority)
   thread_current ()->priority = new_priority;
   
   struct list_elem *max_elem = list_max(&ready_list, &priority_less, NULL); 
-  struct thread *t = list_entry(max_elem, struct thread, elem);
-  if (t -> priority > new_priority) {
+  struct thread *max_priority_t = list_entry(max_elem, struct thread, elem);
+  if (max_priority_t -> priority > new_priority) {
     thread_yield();
   }
-  
 }
 
 /* Returns the current thread's priority. */
@@ -477,7 +484,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
-  sema_init(&t->timer_semaphore, 0);
+  sema_init(&t->timer_semaphore, 0); // OUR CODE HERE
  
 
   old_level = intr_disable ();
@@ -509,6 +516,7 @@ next_thread_to_run (void)
   if (list_empty (&ready_list))
     return idle_thread;
   else {
+    // OUR CODE BELOW
     struct list_elem *max_elem = list_max(&ready_list, &priority_less, NULL);
     list_remove(max_elem);
     return list_entry(max_elem, struct thread, elem);
