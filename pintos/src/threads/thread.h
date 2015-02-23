@@ -94,8 +94,11 @@ struct thread
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
-    int64_t wakeup_time;                /* Time this thread needs to wake up, given that it's sleeping. */
+    int64_t wakeup_time;                /* Time thread needs to wake up, given that it's sleeping. */
 
+    /* list_elem struct for timer.c access for sleeping_threads lsit. */
+    struct list_elem timer_elem;
+    /* semaphore to control access of when this thread is sleeping or not in timer.c */        
     struct semaphore timer_semaphore;
 
 #ifdef USERPROG

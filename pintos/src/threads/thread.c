@@ -95,7 +95,7 @@ thread_init (void)
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
-  sema_init(&initial_thread->timer_semaphore, 1);
+  // sema_init(&initial_thread->timer_semaphore, 0);
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -197,6 +197,11 @@ thread_create (const char *name, int priority,
   /* Add to run queue. */
   thread_unblock (t);
 
+  // my code below, yield if this priority is not hightest priority
+  
+  if (priority > (thread_current()-> priority)) {
+    thread_yield();
+  } 
   return tid;
 }
 
@@ -325,11 +330,39 @@ thread_foreach (thread_action_func *func, void *aux)
     }
 }
 
+
+bool
+priority_less(const struct list_elem *a,
+              const struct list_elem *b, void *aux)
+{
+  struct thread *first = list_entry(a, struct thread, elem);
+  struct thread *second = list_entry(b, struct thread, elem);
+  return (first->priority) < (second->priority);
+}
+
+
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) 
 {
   thread_current ()->priority = new_priority;
+  
+  struct list_elem *max_elem = list_max(&ready_list, &priority_less, NULL);
+  
+  // struct list_elem *e;
+
+  // for (e = list_begin (&ready_list); e != list_end (&ready_list); e = list_next (e))
+  // {
+  //     struct thread *t = list_entry (e, struct thread, elem);
+  //     printf("PRIORITY: %d\n", t->priority);
+  // }
+  struct thread *t = list_entry(max_elem, struct thread, elem);
+  // printf("MAX PRIORITY: %d\n", t -> priority);
+  // printf("NEW PRIORITY: %d\n", new_priority);
+  if (t -> priority > new_priority) {
+    thread_yield();
+  }
+  
 }
 
 /* Returns the current thread's priority. */
@@ -454,6 +487,8 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
+  sema_init(&t->timer_semaphore, 0);
+ 
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
@@ -483,8 +518,13 @@ next_thread_to_run (void)
 {
   if (list_empty (&ready_list))
     return idle_thread;
-  else
-    return list_entry (list_pop_front (&ready_list), struct thread, elem);
+  else {
+
+    struct list_elem *max_elem = list_max(&ready_list, &priority_less, NULL);
+    list_remove(max_elem);
+    return list_entry(max_elem, struct thread, elem);
+  }
+    // return list_entry (list_pop_front (&ready_list), struct thread, elem);
 }
 
 /* Completes a thread switch by activating the new thread's page

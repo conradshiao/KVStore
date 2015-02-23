@@ -33,6 +33,9 @@ static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
 
+bool compare_wakeup(const struct list_elem *a,
+                    const struct list_elem *b, void *aux);
+
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
 void
@@ -78,11 +81,6 @@ timer_ticks (void)
   int64_t t = ticks;
   intr_set_level (old_level);
 
-  // // modify code here
-  // struct list_elem* e = list_begin(&(sema -> waiters));
-  // while (list_entry(e, struct sleeping_thread, element) -> wakeup_time <= t) {
-  //   sema_up(&sema);
-  // }
   return t;
 }
 
@@ -99,8 +97,8 @@ bool compare_wakeup(const struct list_elem *a,
   if (aux != NULL) {
     printf("lsdkfj\n");
   }
-  struct thread *first = list_entry(a, struct thread, elem);
-  struct thread *second = list_entry(b, struct thread, elem);
+  struct thread *first = list_entry(a, struct thread, timer_elem);
+  struct thread *second = list_entry(b, struct thread, timer_elem);
   return (first -> wakeup_time) < (second -> wakeup_time);
 }
 
@@ -112,11 +110,12 @@ timer_sleep (int64_t ticks)
   int64_t start = timer_ticks ();
   
   ASSERT (intr_get_level () == INTR_ON);
-  enum intr_level prev = intr_disable();
 
   struct thread *curr_thread = thread_current();
   curr_thread -> wakeup_time = timer_ticks() + ticks;
-  list_insert_ordered(&sleeping_threads, &curr_thread -> elem, &compare_wakeup, NULL);
+  enum intr_level prev = intr_disable();
+  list_insert_ordered(&sleeping_threads, &curr_thread -> timer_elem,
+                      &compare_wakeup, NULL);
   intr_set_level(prev);
   sema_down(&curr_thread -> timer_semaphore);
 }
@@ -195,16 +194,33 @@ timer_interrupt (struct intr_frame *args UNUSED)
   ticks++;
   thread_tick ();
 
+  enum intr_level prev = intr_disable();
+  struct list_elem *e;
+  struct thread *curr_thread;
   while (!list_empty(&sleeping_threads)) {
-    struct list_elem *e = list_begin(&sleeping_threads);
-    struct thread *curr_thread = list_entry(e, struct thread, elem);
+    e = list_begin(&sleeping_threads);
+
+    curr_thread = list_entry(e, struct thread, timer_elem);
     if (curr_thread -> wakeup_time > timer_ticks()) {
       break;
     } else {
       sema_up(&curr_thread -> timer_semaphore);
       list_pop_front(&sleeping_threads);
     }
-  }    
+  }
+  // struct list_elem *e;
+  // for (e = list_begin (&sleeping_threads); e != list_end (&sleeping_threads);
+  //      e = list_next (e))
+  //   {
+  //     struct thread *t = list_entry (e, struct thread, sema_elem);
+  //     if (t->wakeup_time <= timer_ticks()) {
+  //       sema_up(&t->timer_semaphore);
+  //       list_pop_front(&sleeping_threads);
+  //     } else {
+  //       break;
+  //     }
+  //   }
+  intr_set_level(prev);
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
