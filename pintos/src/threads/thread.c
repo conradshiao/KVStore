@@ -179,11 +179,6 @@ thread_create (const char *name, int priority,
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
 
-  // OUR CODE BELOW, yield current thread if currently made thread is of higher priority?? 
-  if (priority > thread_current()-> priority) {
-    thread_yield();
-  }
-
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
   kf->eip = NULL;
@@ -202,8 +197,7 @@ thread_create (const char *name, int priority,
   /* Add to run queue. */
   thread_unblock (t);
 
-  // my code below, yield if this priority is not hightest priority
-  
+  // OUR CODE BELOW, yield because we're creating a higher priority thread
   if (priority > (thread_current()-> priority)) {
     thread_yield();
   } 
@@ -354,7 +348,8 @@ void
 thread_set_priority (int new_priority) 
 {
   thread_current ()->priority = new_priority;
-  
+
+  // OUR CODE BELOW
   struct list_elem *max_elem = list_max(&ready_list, &priority_less, NULL); 
   struct thread *max_priority_t = list_entry(max_elem, struct thread, elem);
   if (max_priority_t -> priority > new_priority) {
@@ -485,7 +480,6 @@ init_thread (struct thread *t, const char *name, int priority)
   t->priority = priority;
   t->magic = THREAD_MAGIC;
   sema_init(&t->timer_semaphore, 0); // OUR CODE HERE
- 
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);

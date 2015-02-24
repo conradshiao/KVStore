@@ -91,6 +91,9 @@ timer_elapsed (int64_t then)
   return timer_ticks () - then;
 }
 
+/* Compares the wakeup_time field of the two threads who have
+   list_elem fields A and B. Returns true iff the wakeup_time of
+   thread constructed from A is less than that of the one constructed by B. */
 bool compare_wakeup(const struct list_elem *a,
                     const struct list_elem *b, void *aux) {
   if (aux != NULL) {
@@ -111,10 +114,12 @@ timer_sleep (int64_t ticks)
 
   struct thread *curr_thread = thread_current();
   curr_thread -> wakeup_time = timer_ticks() + ticks;
-  enum intr_level prev = intr_disable();
+
+  enum intr_level prev_status = intr_disable();
   list_insert_ordered(&sleeping_threads, &curr_thread -> timer_elem,
                       &compare_wakeup, NULL);
-  intr_set_level(prev);
+  intr_set_level(prev_status);
+
   sema_down(&curr_thread -> timer_semaphore);
 }
 
@@ -195,13 +200,12 @@ timer_interrupt (struct intr_frame *args UNUSED)
   ticks++;
   thread_tick ();
 
-  enum intr_level prev = intr_disable();
-  struct list_elem *e;
+  enum intr_level prev_status = intr_disable();
+
   struct thread *curr_thread;
   while (!list_empty(&sleeping_threads)) {
-    e = list_begin(&sleeping_threads);
-
-    curr_thread = list_entry(e, struct thread, timer_elem);
+    struct list_elem *e = list_begin(&sleeping_threads);
+    struct thread *curr_thread = list_entry(e, struct thread, timer_elem);
     if (curr_thread -> wakeup_time > timer_ticks()) {
       break;
     } else {
@@ -209,19 +213,8 @@ timer_interrupt (struct intr_frame *args UNUSED)
       list_pop_front(&sleeping_threads);
     }
   }
-  // struct list_elem *e;
-  // for (e = list_begin (&sleeping_threads); e != list_end (&sleeping_threads);
-  //      e = list_next (e))
-  //   {
-  //     struct thread *t = list_entry (e, struct thread, sema_elem);
-  //     if (t->wakeup_time <= timer_ticks()) {
-  //       sema_up(&t->timer_semaphore);
-  //       list_pop_front(&sleeping_threads);
-  //     } else {
-  //       break;
-  //     }
-  //   }
-  intr_set_level(prev);
+
+  intr_set_level(prev_status);
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
