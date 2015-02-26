@@ -70,7 +70,6 @@ static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
-bool priority_less(const struct list_elem *a, const struct list_elem *b, void *aux);
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -197,7 +196,7 @@ thread_create (const char *name, int priority,
   /* Add to run queue. */
   thread_unblock (t);
 
-  // OUR CODE BELOW, yield because we're creating a higher priority thread
+  // OUR CODE HERE, yield because we're creating a higher priority thread
   if (priority > (thread_current()-> priority)) {
     thread_yield();
   } 
@@ -329,7 +328,7 @@ thread_foreach (thread_action_func *func, void *aux)
     }
 }
 
-// OUR CODE BELOW
+// OUR CODE HERE
 /* Ordering function based on the priority field of threads.
    Returns true iff the priority of the thread constructed from a
    is less than that of b.
@@ -347,14 +346,18 @@ priority_less(const struct list_elem *a,
 void
 thread_set_priority (int new_priority) 
 {
+
+  enum intr_level prev_status = intr_disable();
   thread_current ()->priority = new_priority;
 
-  // OUR CODE BELOW
+  // OUR CODE HERE
   struct list_elem *max_elem = list_max(&ready_list, &priority_less, NULL); 
   struct thread *max_priority_t = list_entry(max_elem, struct thread, elem);
   if (max_priority_t -> priority > new_priority) {
     thread_yield();
   }
+
+  intr_set_level(prev_status);
 }
 
 /* Returns the current thread's priority. */
@@ -479,7 +482,14 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
-  sema_init(&t->timer_semaphore, 0); // OUR CODE HERE
+
+  // OUR CODE HERE
+  sema_init(&t->timer_semaphore, 0);
+  t -> orig_priority = priority;
+  list_init(&t -> donors);
+  t -> wanted_lock = NULL; // NULL lock means thread t is waiting on no lock
+  // END OF OUR CODE HERE
+
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
@@ -553,7 +563,7 @@ thread_schedule_tail (struct thread *prev)
      pull out the rug under itself.  (We don't free
      initial_thread because its memory was not obtained via
      palloc().) */
-  if (prev != NULL && prev->status == THREAD_DYING && prev != initial_thread) 
+  if (prev != NULL && prev->status == THREAD_DYING && prev != initial_thread)
     {
       ASSERT (prev != cur);
       palloc_free_page (prev);
