@@ -197,9 +197,7 @@ thread_create (const char *name, int priority,
   thread_unblock (t);
 
   // OUR CODE: creating a thread might change which thread has max priority
-  enum intr_level prev_status = intr_disable();
   check_max_priority();
-  intr_set_level(prev_status);
 
   return tid;
 }
@@ -338,14 +336,14 @@ bool
 priority_less(const struct list_elem *a,
               const struct list_elem *b, void *aux)
 {
-  printf("in priority_less\n");
+  // printf("in priority_less\n");
   if (aux != NULL) {
     printf("should never hit this. ignore\n");
   }
   struct thread *first = list_entry(a, struct thread, elem);
   struct thread *second = list_entry(b, struct thread, elem);
   return first->priority < second->priority;
-  printf("finished priority_less\n");
+  // printf("finished priority_less\n");
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
@@ -354,25 +352,27 @@ thread_set_priority (int new_priority)
 {
   printf("in thread_set_priority\n");
   // OUR CODE HERE: sorry karen. I changed yours a lot
-  enum intr_level prev_status = intr_disable(); // let's stably do this
+
 
   struct thread *curr_thread = thread_current();
   int prev_priority = curr_thread -> priority;
   /* Changing the BASE/ORIGINAL priority of the current thread */
   curr_thread -> orig_priority = new_priority;
 
+  enum intr_level prev_status = intr_disable(); // let's stably do this
   update_priority();
+  intr_set_level(prev_status);
   /* My priority is now bigger: potentially, I need to donate again
   to change and update the priorities of the chain of threads that I
   am donating to. */
   if (prev_priority < curr_thread -> priority) {
+    prev_status = intr_disable();
     priority_donation();
+    intr_set_level(prev_status);
   } else if (prev_priority > curr_thread -> priority) {
     // boo. I gotta check if I need to yield cuz my priority was lowered
     check_max_priority();
   }
-
-  intr_set_level(prev_status);
   printf("finished thread_set_priority\n");
 }
 
@@ -503,6 +503,7 @@ init_thread (struct thread *t, const char *name, int priority)
   sema_init(&t->timer_semaphore, 0);
   t -> orig_priority = priority;
   list_init(&t -> donors);
+  printf("HEY I SHOULD SEE THIS LIST INIT HERE\n");
   t -> wanted_lock = NULL; // NULL lock means thread t is waiting on no lock
   // END OF OUR CODE HERE
 
@@ -628,50 +629,17 @@ allocate_tid (void)
    synch.c from where this is called. */
 void release_threads_waiting_on_lock(struct lock *lock) {
   printf("in release_threads_waiting_on_lock\n");
-  struct list list_of_donors = thread_current() -> donors;
-  printf("next line\n");
-  struct list_elem *e = list_begin(&list_of_donors);
-  printf("hi\n");
-  // printf("list size: %d \n", list_size(&list_of_donors));
-  if (e != NULL) {
-    msg("check 1-1 passed");
-  }
-  if (e -> prev == NULL) {
-    msg("check 1-2 passed");
-  }
-  if (e -> next != NULL) {
-    msg("ch 1-3-1 here");
-  } else {
-    msg("ch 1-3-2 here");
-  }
-  struct thread *t;
+  struct list_elem *e = list_begin(&thread_current() ->donors);
   // WE CAN'T USE FOR LOOP. We're potentially removing elements, which
   // I think does weird funny business. So before we remove, we need to
   // look at the next item on list so it stably removes items.
-  while (e != list_end(&list_of_donors)) {
-    msg("An iteration");
-    t = list_entry(e, struct thread, donor_elem);
-    msg("after list_entry...");
-      if (e != NULL) {
-    msg("check 1-1 passed");
-  }
-  if (e -> prev == NULL) {
-    msg("check 1-2 passed");
-  }
-  if (e -> next != NULL) {
-    msg("ch 1-3-1 here");
-  } else {
-    msg("ch 1-3-2 here");
-  }
-    struct list_elem* next_in_case = list_next(e); // in case we list remove
-    msg("called list next here");
-    if (t -> wanted_lock == lock) {
-      printf("tricky case\n");
+  while (e != list_end(&thread_current()->donors)) {
+    struct list_elem *next = list_next(e); // in case we list remove
+    struct thread *t = list_entry(e, struct thread, donor_elem);
+    if (t->wanted_lock == lock) {
       list_remove(e); // does some hecka shady stuff to the list
     }
-    msg("reaching end of iteration");
-    e = next_in_case;
-    msg("finished end of iteration");
+    e = next;
   }
   printf("finished release_threads_waiting_on_lock\n");
 }
@@ -708,6 +676,7 @@ void update_priority() {
   printf("in update_priority\n");
   struct thread *t = thread_current();
   if (list_empty(&t -> donors)) {
+    // printf("WHOA HERE: EMPTY LIST OF DONORS\n");
     t -> priority = t -> orig_priority;
   } else {
     // we need the list
@@ -721,18 +690,17 @@ void update_priority() {
 }
 
 /* Checks to see if the current thread has maximum priority. If not,
-   then will yield to find the thread that should be running.
-   
-   Interrupts are turned off during this subroutine. */
+   then will yield to find the thread that should be running. */
 void check_max_priority() {
-  printf("in check_max_priority\n");
   if (list_empty(&ready_list)) {
+    printf("finished check_max_priority\n");
     return; // nothing to check for. lulz
   }
+  enum intr_level prev_status = intr_disable();
   struct thread *t = list_entry(list_max(&ready_list, &priority_less, NULL),
                                         struct thread, elem);
-  struct thread *curr_thread = thread_current();
-  if (curr_thread -> priority < t -> priority) {
+  intr_set_level(prev_status);
+  if (thread_current() -> priority < t -> priority) {
     if (intr_context()) { // THANKS JASON YAY
       intr_yield_on_return();
     } else {
@@ -740,13 +708,6 @@ void check_max_priority() {
     }
   }
   printf("finished check_max_priority\n");
-  // if (intr_context()) {
-  //   if (curr_thread -)
-  // } else {
-  //   if (curr_thread -> priority < t -> priority) {
-  //     thread_yield();
-  //   }
-  // }
 }
 
 /* Offset of `stack' member within `struct thread'.
