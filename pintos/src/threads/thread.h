@@ -106,6 +106,7 @@ struct thread
     int orig_priority;                /* original priority. */
     struct list donors;                 /* list of donor threads (threads waiting on my locks).*/
     struct list_elem donor_elem;        /* list element for donor list. */
+    // struct thread *donee;               /* thread that I donate to. */
     struct lock *wanted_lock;            /* lock that I wait for. */
 
 #ifdef USERPROG
@@ -153,6 +154,11 @@ void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
+// OUR CODE HERE
 bool priority_less(const struct list_elem *a, const struct list_elem *b, void *aux);
+void priority_donation(void);
+void update_priority(void);
+void release_threads_waiting_on_lock(struct lock *lock);
+void check_max_priority(void);
 
 #endif /* threads/thread.h */

@@ -62,6 +62,7 @@ void
 sema_down (struct semaphore *sema) 
 {
   enum intr_level old_level;
+  printf("in sema down\n");
 
   ASSERT (sema != NULL);
   ASSERT (!intr_context ());
@@ -70,12 +71,11 @@ sema_down (struct semaphore *sema)
   while (sema->value == 0) 
     {
       list_push_back (&sema->waiters, &thread_current ()->elem);
-      // list_insert_ordered(&sema->waiters, &thread_current() -> elem,
-                          // &priority_less, NULL); // OUR CODE HERE
       thread_block ();
     }
   sema->value--;
   intr_set_level (old_level);
+  printf("finished sema down\n");
 }
 
 /* Down or "P" operation on a semaphore, but only if the
@@ -112,17 +112,35 @@ void
 sema_up (struct semaphore *sema) 
 {
   enum intr_level old_level;
+  printf("in sema up\n");
 
   ASSERT (sema != NULL);
 
+  struct thread *max_thread;
+  int flag = false;
   old_level = intr_disable ();
   if (!list_empty (&sema->waiters)) {
-    thread_unblock (list_entry (list_max (&sema->waiters, &priority_less, NULL), 
-                                                        struct thread, elem));
-    // want to pop highets proiority. i think this is back of list actually, check later yasldkfjdls
+    // OUR CODE HERE: Unblocking highest priority thread
+    flag = true;
+    max_thread = list_entry(list_max(&sema -> waiters, &priority_less, NULL),
+                                     struct thread, elem);
+    thread_unblock(max_thread);
   }
   sema->value++;
   intr_set_level (old_level);
+  printf("finished sema up\n");
+
+  /* OUR CODE HERE: Once we sema up and release a lock, we want to
+   thread yield to let max priority thread run 
+
+   GSI Jason said this is what we needed??? */
+  // if (flag && t -> priority > thread_get_priority()) {
+  //   if (intr_context()) {
+  //     intr_yield_on_return();
+  //   } else {
+  //     thread_yield();
+  //   }
+  // }
 }
 
 static void sema_test_helper (void *sema_);
@@ -197,42 +215,32 @@ lock_init (struct lock *lock)
 void
 lock_acquire (struct lock *lock)
 {
+  printf("in lock_acquire\n");
   ASSERT (lock != NULL);
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
-  // sema_down (&lock->semaphore);
 
   // OUR CODE HERE
   enum intr_level prev_status = intr_disable();
-  printf("disabled in acquire\n");
-  printf("just to make sure\n");
 
-  struct thread *cur = thread_current();
-  cur -> wanted_lock = lock;  // set current thread's wanted lock to lcok
-  struct thread *lock_holder = lock -> holder;
-  printf("check 2\n");
-  list_push_back(&lock_holder -> donors, &cur -> donor_elem); // insert in what manner?
-  // HERE HERE HERE ABOVE FIX I THINK
-  printf("check 1\n");
-
-  /* Priority donation through nested path of locks. */
-  while (lock != NULL) {
-    if (lock_holder == NULL) {// no lock holder. how to tell? like this?
-      return;
-    } else if (lock_holder -> priority >= cur -> priority) { // can't donate lower priority
-      return;
-    } else {
-      lock_holder -> priority = cur -> priority;    // lock holder priority = current thread's priority
-      cur = lock -> holder;                         // update cur
-      lock = cur -> wanted_lock;                    // update lock
-      lock_holder = lock -> holder;                 // update lock_holder
-    }
+  struct thread *curr_thread = thread_current();
+  if (lock -> holder != NULL) {
+    curr_thread -> wanted_lock = lock;
+    struct thread *lock_holder = lock -> holder;
+    list_push_back(&lock_holder -> donors, &curr_thread -> donor_elem); // insert in what manner?
   }
-  // printf("before enabling in acquire\n");
-  intr_set_level(prev_status);
+
+  priority_donation();
 
   sema_down(&lock -> semaphore);
+
+  // sema down has finished. So now the current thread is updated??
+
+  curr_thread -> wanted_lock = NULL;
+  lock -> holder = curr_thread; // not sure about this line...
+  intr_set_level(prev_status);
+  printf("outside of lock_acquire\n");
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -263,31 +271,24 @@ lock_try_acquire (struct lock *lock)
 void
 lock_release (struct lock *lock) 
 {
+  printf("in lock_release\n");
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
   // OUR CODE HERE
   // printf("in lock_release\n");
-  // struct thread *old_thread = lock -> holder;
 
-  lock->holder = NULL; // lock no longer has holder, so lock holder should be null now
+  lock->holder = NULL; // lock no longer has holder,
+  enum intr_level prev_status = intr_disable();
+
+  // OUR CODE HERE, BELOW. Self-explanatory
+  release_threads_waiting_on_lock(lock);
+  update_priority(); // of current thread. duh.
+
+  intr_set_level(prev_status);
   sema_up (&lock->semaphore);
-
-  // OUR CODE HERE
-  struct thread *cur = thread_current();
-  struct list_elem *t = list_begin(&cur->donors);
-  struct thread *thr;
-  while(t != list_end(&cur->donors)) {
-    thr = list_entry(t, struct thread, donor_elem);
-    if (thr-> wanted_lock == lock)
-      t = list_remove(&thr->donor_elem);
-    else t = list_next(t);
-  }
-  // printf("almost end of lock_release\n");
-  struct list_elem *max_elem = list_max(&cur->donors, &priority_less, NULL); // max priority of donors
-  thread_set_priority(list_entry(max_elem, struct thread, donor_elem)->priority); // set priority to priority of max donor
-
-
+  check_max_priority(); // try if ! intr_context() if fails
+  printf("finished lock_release\n");
 }
 
 /* Returns true if the current thread holds LOCK, false
@@ -300,7 +301,7 @@ lock_held_by_current_thread (const struct lock *lock)
 
   return lock->holder == thread_current ();
 }
-
+
 /* One semaphore in a list. */
 struct semaphore_elem 
   {
