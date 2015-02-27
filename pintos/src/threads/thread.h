@@ -106,7 +106,6 @@ struct thread
     int orig_priority;                /* original priority. */
     struct list donors;                 /* list of donor threads (threads waiting on my locks).*/
     struct list_elem donor_elem;        /* list element for donor list. */
-    struct thread *donee;               /* thread that I donate to. */
     struct lock *wanted_lock;            /* lock that I wait for. */
 
 #ifdef USERPROG

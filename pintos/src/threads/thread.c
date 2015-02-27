@@ -198,7 +198,9 @@ thread_create (const char *name, int priority,
 
   // OUR CODE HERE, yield because we're creating a higher priority thread
   if (priority > (thread_current()-> priority)) {
-    thread_yield();
+    if (intr_context())
+      intr_yield_on_return ();
+    else thread_yield();
   } 
   return tid;
 }
@@ -354,7 +356,9 @@ thread_set_priority (int new_priority)
   struct list_elem *max_elem = list_max(&ready_list, &priority_less, NULL); 
   struct thread *max_priority_t = list_entry(max_elem, struct thread, elem);
   if (max_priority_t -> priority > new_priority) {
-    thread_yield();
+    if (intr_context())
+      intr_yield_on_return ();
+    else thread_yield();
   }
 
   intr_set_level(prev_status);
@@ -489,7 +493,6 @@ init_thread (struct thread *t, const char *name, int priority)
   list_init(&t -> donors);
   t -> wanted_lock = NULL; // NULL lock means thread t is waiting on no lock
   // END OF OUR CODE HERE
-
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
