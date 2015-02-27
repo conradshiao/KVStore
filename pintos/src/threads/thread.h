@@ -100,6 +100,10 @@ struct thread
     struct list_elem timer_elem;
     /* semaphore to control access of when this thread is sleeping or not in timer.c */        
     struct semaphore timer_semaphore;
+    int orig_priority;
+    struct list donors;
+    struct list_elem donor elem;
+    struct lock *wanted_lock;
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
