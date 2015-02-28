@@ -215,6 +215,7 @@ thread_block (void)
 
   thread_current ()->status = THREAD_BLOCKED;
   schedule ();
+  //intr_enable ();    // TESTING 
 }
 
 /* Transitions a blocked thread T to the ready-to-run state.
@@ -289,6 +290,8 @@ thread_exit (void)
   list_remove (&thread_current()->allelem);
   thread_current ()->status = THREAD_DYING;
   schedule ();
+  //intr_enable ();      //TESTING 
+
   NOT_REACHED ();
 }
 
@@ -345,6 +348,21 @@ priority_less(const struct list_elem *a,
   return first->priority < second->priority;
   // printf("finished priority_less\n");
 }
+
+bool
+donor_less(const struct list_elem *a,
+              const struct list_elem *b, void *aux)
+{
+  // printf("in priority_less\n");
+  if (aux != NULL) {
+    printf("should never hit this. ignore\n");
+  }
+  struct thread *first = list_entry(a, struct thread, donor_elem);
+  struct thread *second = list_entry(b, struct thread, donor_elem);
+  return first->priority < second->priority;
+  // printf("finished priority_less\n");
+}
+
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
@@ -634,19 +652,19 @@ void release_threads_waiting_on_lock(struct lock *lock) {
   // I think does weird funny business. So before we remove, we need to
   // look at the next item on list so it stably removes items.
   while (e != list_end(&thread_current()->donors)) {
-    struct list_elem *next = list_next(e); // in case we list remove
     struct thread *t = list_entry(e, struct thread, donor_elem);
     if (t->wanted_lock == lock) {
-      list_remove(e); // does some hecka shady stuff to the list
+      e = list_remove(e); // does some hecka shady stuff to the list
+    } else {
+      e = list_next(e);
     }
-    e = next;
   }
   //printf("finished release_threads_waiting_on_lock\n");
 }
 
 /* Implementing priority donation from synch.c. Interrupts are disabled
    during the execution of this function. */
-void priority_donation() {
+void priority_donation () {
   //printf("in priority_donation\n");
   int depth = 0; //GSI Jason told us to just do it for deadlock. Good style
   struct thread *iter_thread = thread_current();
@@ -656,7 +674,7 @@ void priority_donation() {
     if (holding_thread == NULL) { // so if no thread is holding this lock
       return; // reached end of priority donation chain
     } else if (iter_thread -> priority < holding_thread -> priority) {
-      return; // don't wanna donatelower priority, so end our donation chain
+      return; // don't wanna donate lower priority, so end our donation chain
     }
     holding_thread -> priority = iter_thread -> priority;
     // update to the held thread and next wanted lock to move down the chain
@@ -675,22 +693,24 @@ void priority_donation() {
 void update_priority() {
   //printf("in update_priority\n");
   struct thread *t = thread_current();
+  t -> priority = t -> orig_priority;
   if (list_empty(&t -> donors)) {
     // printf("WHOA HERE: EMPTY LIST OF DONORS\n");
-    t -> priority = t -> orig_priority;
+    return;
   } else {
     // we need the list
     struct list_elem *max_elem;
     struct thread *max_t;
     while (t != NULL) {
-      max_elem = list_max(&t -> donors, &priority_less, NULL);
+      max_elem = list_max(&t -> donors, &donor_less, NULL);
       max_t = list_entry(max_elem, struct thread, donor_elem);
- 
+
       if (max_t -> priority > t -> orig_priority) {
         t -> priority = max_t -> priority;
       }
-      struct lock *l = t -> wanted_lock;
-      t = l -> holder;
+      t = t -> wanted_lock -> holder;
+      // struct lock *l = t -> wanted_lock;
+      // t = l -> holder;
     }
     check_max_priority();
   }
