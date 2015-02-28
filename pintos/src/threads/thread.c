@@ -350,7 +350,7 @@ priority_less(const struct list_elem *a,
 void
 thread_set_priority (int new_priority) 
 {
-  printf("in thread_set_priority\n");
+  //printf("in thread_set_priority\n");
   // OUR CODE HERE: sorry karen. I changed yours a lot
 
 
@@ -373,7 +373,7 @@ thread_set_priority (int new_priority)
     // boo. I gotta check if I need to yield cuz my priority was lowered
     check_max_priority();
   }
-  printf("finished thread_set_priority\n");
+  //printf("finished thread_set_priority\n");
 }
 
 /* Returns the current thread's priority. */
@@ -503,7 +503,7 @@ init_thread (struct thread *t, const char *name, int priority)
   sema_init(&t->timer_semaphore, 0);
   t -> orig_priority = priority;
   list_init(&t -> donors);
-  printf("HEY I SHOULD SEE THIS LIST INIT HERE\n");
+  //printf("HEY I SHOULD SEE THIS LIST INIT HERE\n");
   t -> wanted_lock = NULL; // NULL lock means thread t is waiting on no lock
   // END OF OUR CODE HERE
 
@@ -628,7 +628,7 @@ allocate_tid (void)
    are waiting on this lock. Interrupts are already disabled in
    synch.c from where this is called. */
 void release_threads_waiting_on_lock(struct lock *lock) {
-  printf("in release_threads_waiting_on_lock\n");
+  //printf("in release_threads_waiting_on_lock\n");
   struct list_elem *e = list_begin(&thread_current() ->donors);
   // WE CAN'T USE FOR LOOP. We're potentially removing elements, which
   // I think does weird funny business. So before we remove, we need to
@@ -641,13 +641,13 @@ void release_threads_waiting_on_lock(struct lock *lock) {
     }
     e = next;
   }
-  printf("finished release_threads_waiting_on_lock\n");
+  //printf("finished release_threads_waiting_on_lock\n");
 }
 
 /* Implementing priority donation from synch.c. Interrupts are disabled
    during the execution of this function. */
 void priority_donation() {
-  printf("in priority_donation\n");
+  //printf("in priority_donation\n");
   int depth = 0; //GSI Jason told us to just do it for deadlock. Good style
   struct thread *iter_thread = thread_current();
   struct lock *iter_lock = iter_thread -> wanted_lock;
@@ -664,7 +664,7 @@ void priority_donation() {
     iter_lock = iter_thread -> wanted_lock;
     depth++;
   }
-  printf("finished priority_donation\n");
+  //printf("finished priority_donation\n");
 }
 
 /* From synch.c file, updates the priority of the current thread.
@@ -673,27 +673,35 @@ void priority_donation() {
 
    Interrupts are already disabled from where this is called in synch.c */
 void update_priority() {
-  printf("in update_priority\n");
+  //printf("in update_priority\n");
   struct thread *t = thread_current();
   if (list_empty(&t -> donors)) {
     // printf("WHOA HERE: EMPTY LIST OF DONORS\n");
     t -> priority = t -> orig_priority;
   } else {
     // we need the list
-    struct list_elem *max_elem = list_max(&t -> donors, &priority_less, NULL);
-    struct thread *max_p = list_entry(max_elem, struct thread, donor_elem);
-    if (max_p -> priority > t -> orig_priority) {
-      t -> priority = max_p -> priority;
+    struct list_elem *max_elem;
+    struct thread *max_t;
+    while (t != NULL) {
+      max_elem = list_max(&t -> donors, &priority_less, NULL);
+      max_t = list_entry(max_elem, struct thread, donor_elem);
+ 
+      if (max_t -> priority > t -> orig_priority) {
+        t -> priority = max_t -> priority;
+      }
+      struct lock *l = t -> wanted_lock;
+      t = l -> holder;
     }
+    check_max_priority();
   }
-  printf("finished update_priority\n");
+  //printf("finished update_priority\n");
 }
 
 /* Checks to see if the current thread has maximum priority. If not,
    then will yield to find the thread that should be running. */
 void check_max_priority() {
   if (list_empty(&ready_list)) {
-    printf("finished check_max_priority\n");
+    //printf("finished check_max_priority\n");
     return; // nothing to check for. lulz
   }
   enum intr_level prev_status = intr_disable();
@@ -707,7 +715,7 @@ void check_max_priority() {
       thread_yield();
     }
   }
-  printf("finished check_max_priority\n");
+  //printf("finished check_max_priority\n");
 }
 
 /* Offset of `stack' member within `struct thread'.
