@@ -118,13 +118,15 @@ sema_up (struct semaphore *sema)
 
   struct thread *max_thread;
   old_level = intr_disable ();
-  sema->value++;
+  sema -> value++;
   if (!list_empty (&sema->waiters)) {
-    max_thread = list_entry(list_max(&sema -> waiters, &priority_less, NULL),
-                                     struct thread, elem);
-
-    thread_unblock(max_thread);
+    struct thread *max_t;
+    max_t = list_entry(list_max(&sema->waiters, &priority_less, NULL),
+                       struct thread, elem);
+    list_remove(&max_t -> elem);
+    thread_unblock(max_t);
   }
+  // sema->value++;
   intr_set_level (old_level);
   //printf("finished sema up\n");
 
@@ -221,22 +223,22 @@ lock_acquire (struct lock *lock)
   enum intr_level prev_status = intr_disable();
 
   struct thread *curr_thread = thread_current();
+
   if (lock -> holder != NULL) {
     curr_thread -> wanted_lock = lock;
-    struct thread *lock_holder = lock -> holder;
-    list_push_back(&lock_holder -> donors, &curr_thread -> donor_elem); // insert in what manner?
+    list_push_back(&lock -> holder -> donors, &curr_thread -> donor_elem);
+    priority_donation();
   }
-  priority_donation();
+
   intr_set_level(prev_status);
-  sema_down(&lock -> semaphore);
 
-  // sema down has finished. So now the current thread is updated??
+  sema_down(&lock -> semaphore); // atomic operation, interrupt status doesn't matter atm
 
+  prev_status = intr_disable();
   curr_thread -> wanted_lock = NULL;
   lock -> holder = curr_thread;
 
-  // check_max_priority();
-  //printf("outside of lock_acquire\n");
+  intr_set_level(prev_status);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -276,19 +278,19 @@ lock_release (struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
 
   // OUR CODE HERE
+  lock -> holder = NULL;
+  sema_up(&lock -> semaphore); // i think it's called here before we call release_threads_waiting_on_lock...
 
-  lock->holder = NULL;
   enum intr_level prev_status = intr_disable();
 
-  // OUR CODE HERE, BELOW. Self-explanatory
   release_threads_waiting_on_lock(lock);
-  update_priority(); // of current thread. duh.
+  update_priority();
 
   intr_set_level(prev_status);
-  sema_up (&lock->semaphore);
-  // surround with the interrupt chunk codslkdfjlsakdfjlksa
-  // check_max_priority();
-  //printf("finished lock_release\n");
+  check_max_priority();
+
+  // lock->holder = NULL;
+  // sema_up (&lock->semaphore);
 }
 
 /* Returns true if the current thread holds LOCK, false

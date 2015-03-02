@@ -198,8 +198,8 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
-
-  enum intr_level prev_status = intr_disable();
+  ASSERT(intr_get_level() == INTR_OFF); // MY CODE HERE
+  //enum intr_level prev_status = intr_disable();
 
   struct thread *curr_thread;
   while (!list_empty(&sleeping_threads)) {
@@ -212,8 +212,8 @@ timer_interrupt (struct intr_frame *args UNUSED)
       list_pop_front(&sleeping_threads);
     }
   }
-
-  intr_set_level(prev_status);
+  check_max_priority();
+ // intr_set_level(prev_status);
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
