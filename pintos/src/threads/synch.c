@@ -117,30 +117,21 @@ sema_up (struct semaphore *sema)
   ASSERT (sema != NULL);
 
   struct thread *max_thread;
-  int flag = false;
   old_level = intr_disable ();
   sema->value++;
   if (!list_empty (&sema->waiters)) {
-    // OUR CODE HERE: Unblocking highest priority thread
-    flag = true;
     max_thread = list_entry(list_max(&sema -> waiters, &priority_less, NULL),
                                      struct thread, elem);
 
     thread_unblock(max_thread);
-    // if (!intr_context()) {
-    //   check_max_priority();
-    // }
-    // check_max_priority();
   }
-  // sema->value++;
   intr_set_level (old_level);
   //printf("finished sema up\n");
 
   /* OUR CODE HERE: Once we sema up and release a lock, we want to
-   thread yield to let max priority thread run 
+   thread yield to let max priority thread run */
 
-   GSI Jason said this is what we needed??? */
-  // if (flag && t -> priority > thread_get_priority()) {
+  // if (flag && (max_thread -> priority > thread_get_priority())) {
   //   if (intr_context()) {
   //     intr_yield_on_return();
   //   } else {
@@ -234,16 +225,17 @@ lock_acquire (struct lock *lock)
     curr_thread -> wanted_lock = lock;
     struct thread *lock_holder = lock -> holder;
     list_push_back(&lock_holder -> donors, &curr_thread -> donor_elem); // insert in what manner?
-    priority_donation();
   }
+  priority_donation();
   intr_set_level(prev_status);
   sema_down(&lock -> semaphore);
 
   // sema down has finished. So now the current thread is updated??
 
   curr_thread -> wanted_lock = NULL;
-  lock -> holder = curr_thread; // not sure about this line...
-  // intr_set_level(prev_status);
+  lock -> holder = curr_thread;
+
+  // check_max_priority();
   //printf("outside of lock_acquire\n");
 }
 
@@ -262,8 +254,12 @@ lock_try_acquire (struct lock *lock)
   ASSERT (!lock_held_by_current_thread (lock));
 
   success = sema_try_down (&lock->semaphore);
-  if (success)
+  struct thread *curr_thread = thread_current();
+  if (success) {
     lock->holder = thread_current ();
+    struct thread *lock_holder = lock -> holder;
+    list_push_back(&lock_holder -> donors, &curr_thread -> donor_elem);
+  }
   return success;
 }
 
@@ -281,7 +277,7 @@ lock_release (struct lock *lock)
 
   // OUR CODE HERE
 
-  lock->holder = NULL; // lock no longer has holder,
+  lock->holder = NULL;
   enum intr_level prev_status = intr_disable();
 
   // OUR CODE HERE, BELOW. Self-explanatory
@@ -291,7 +287,7 @@ lock_release (struct lock *lock)
   intr_set_level(prev_status);
   sema_up (&lock->semaphore);
   // surround with the interrupt chunk codslkdfjlsakdfjlksa
-  check_max_priority();
+  // check_max_priority();
   //printf("finished lock_release\n");
 }
 
