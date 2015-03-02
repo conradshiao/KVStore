@@ -70,7 +70,7 @@ static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
-bool priority_less(const struct list_elem *a, const struct list_elem *b, void *aux);
+//bool priority_less(const struct list_elem *a, const struct list_elem *b, void *aux);
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -198,9 +198,7 @@ thread_create (const char *name, int priority,
   thread_unblock (t);
 
   // OUR CODE BELOW, yield because we're creating a higher priority thread
-  if (priority > (thread_current()-> priority)) {
-    thread_yield();
-  } 
+  check_max_priority();
   return tid;
 }
 
@@ -336,7 +334,7 @@ thread_foreach (thread_action_func *func, void *aux)
 */
 bool
 priority_less(const struct list_elem *a,
-              const struct list_elem *b, void *aux)
+              const struct list_elem *b, void *aux UNUSED)
 {
   struct thread *first = list_entry(a, struct thread, elem);
   struct thread *second = list_entry(b, struct thread, elem);
@@ -347,14 +345,10 @@ priority_less(const struct list_elem *a,
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->priority = new_priority;
-
+  thread_current ()->orig_priority = new_priority;
+  thread_current() -> priority = new_priority;
   // OUR CODE BELOW
-  struct list_elem *max_elem = list_max(&ready_list, &priority_less, NULL); 
-  struct thread *max_priority_t = list_entry(max_elem, struct thread, elem);
-  if (max_priority_t -> priority > new_priority) {
-    thread_yield();
-  }
+  check_max_priority();
 }
 
 /* Returns the current thread's priority. */
@@ -479,7 +473,11 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
-  sema_init(&t->timer_semaphore, 0); // OUR CODE HERE
+  // OUR CODE HERE
+  sema_init(&t->timer_semaphore, 0);
+  t -> orig_priority = priority;
+  list_init(&t -> donors);
+  t -> wanted_lock = NULL;
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
@@ -596,6 +594,46 @@ allocate_tid (void)
   return tid;
 }
 
+
+/* Executes priority donation from synch.c when a thread acquires the lock.
+
+   Interrupts are disabled during the execution of this function. */
+void priority_donation() {
+  // int depth = 0; implement this later if necessary with deadlock depth of 8
+  struct thread *iter_thread = thread_current();
+  struct lock *iter_lock = iter_thread -> wanted_lock;
+  while (iter_lock != NULL) {
+    struct thread *holding_thread = iter_lock -> holder;
+    if (holding_thread == NULL) { // no thread holding the iter_lock
+      return; // nothing to donate, reached end of priority donation chain
+    }
+    if (iter_thread -> priority < holding_thread -> priority) {
+      return; // would donate lower priority, so we break our donation chain
+    }
+    holding_thread -> priority = iter_thread -> priority;
+    iter_thread = holding_thread;
+    iter_lock = holding_thread -> wanted_lock;
+    // depth++;
+  }
+}
+
+/* Checks to see if the current thread has maximum priority. If not, then this
+   method yields to find the thread of max priority that should be running. */
+void check_max_priority () {
+  if (list_empty(&ready_list)) {
+    return;
+  }
+  struct thread *t = list_entry(list_max(&ready_list, &priority_less, NULL),
+                                struct thread, elem);
+  if (thread_current() -> priority < t -> priority) {
+    if (intr_context()) {
+      intr_yield_on_return();
+    } else {
+      thread_yield();
+    }
+  }
+}
+
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);

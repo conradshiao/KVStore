@@ -101,6 +101,11 @@ struct thread
     /* semaphore to control access of when this thread is sleeping or not in timer.c */        
     struct semaphore timer_semaphore;
 
+    int orig_priority;                  /* My original priority if I had no priority donation. */
+    struct list donors;                 /* List of donor threads (threads waiting on my lock). */
+    struct list_elem donor_elem;        /* list_elem to access my donor list. */
+    struct lock *wanted_lock;           /* Lock that I am currently waiting for (NULL if none). */
+
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
@@ -145,5 +150,11 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+// MY CODE HERE
+void check_max_priority(void);
+void priority_donation(void);
+bool priority_less(const struct list_elem *a,
+                   const struct list_elem *b, void *aux);
 
 #endif /* threads/thread.h */

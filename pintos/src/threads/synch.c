@@ -114,11 +114,15 @@ sema_up (struct semaphore *sema)
   ASSERT (sema != NULL);
 
   old_level = intr_disable ();
+  sema -> value++;
   if (!list_empty (&sema->waiters)) {
-    thread_unblock (list_entry (list_pop_front (&sema->waiters),
-                                struct thread, elem));
+    struct thread *max_t;
+    max_t = list_entry(list_max(&sema->waiters, &priority_less, NULL),
+                       struct thread, elem);
+    list_remove(&max_t -> elem);
+    thread_unblock(max_t);
   }
-  sema->value++;
+  // sema->value++;
   intr_set_level (old_level);
 }
 
@@ -198,8 +202,28 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
-  sema_down (&lock->semaphore);
-  lock->holder = thread_current ();
+  enum intr_level prev_status = intr_disable();
+
+  struct thread *curr_thread = thread_current();
+
+  if (lock -> holder != NULL) {
+    curr_thread -> wanted_lock = lock;
+    list_push_back(&lock -> holder -> donors, &curr_thread -> donor_elem);
+    priority_donation();
+  }
+
+  intr_set_level(prev_status);
+
+  sema_down(&lock -> semaphore); // atomic operation, interrupt status doesn't matter atm
+
+  prev_status = intr_disable();
+  curr_thread -> wanted_lock = NULL;
+  lock -> holder = curr_thread;
+
+  intr_set_level(prev_status);
+
+  // sema_down (&lock->semaphore);
+  // lock->holder = thread_current ();
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
