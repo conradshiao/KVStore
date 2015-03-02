@@ -328,7 +328,7 @@ thread_foreach (thread_action_func *func, void *aux)
 }
 
 // OUR CODE BELOW
-/* Ordering function based on the priority field of threads.
+/* Ordering function based on the priority field of threads on ready_list.
    Returns true iff the priority of the thread constructed from a
    is less than that of b.
 */
@@ -341,14 +341,42 @@ priority_less(const struct list_elem *a,
   return first->priority < second->priority;
 }
 
+/* Ordering function based on the priority field of threads on list of donors
+   of the current thread.
+   Returns true iff the priority of the thread constructed from a
+   is less than that of b.
+*/
+bool
+donor_priority_less(const struct list_elem *a,
+              const struct list_elem *b, void *aux UNUSED)
+{
+  struct thread *first = list_entry(a, struct thread, donor_elem);
+  struct thread *second = list_entry(b, struct thread, donor_elem);
+  return first->priority < second->priority;
+}
+
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->orig_priority = new_priority;
-  thread_current() -> priority = new_priority;
-  // OUR CODE BELOW
-  check_max_priority();
+  struct thread *curr_thread = thread_current();
+  int prev_priority = curr_thread -> priority;
+  curr_thread -> orig_priority = new_priority;
+
+  enum intr_level prev_status = intr_disable();
+  if (prev_priority < new_priority) {
+    curr_thread -> priority = new_priority;
+    priority_donation();
+    intr_set_level(prev_status);
+  } else if (prev_priority > new_priority) {
+    update_priority();
+    intr_set_level(prev_status);
+    check_max_priority();
+  }
+  // thread_current ()->orig_priority = new_priority;
+  // thread_current() -> priority = new_priority;
+  // // OUR CODE BELOW
+  // check_max_priority();
 }
 
 /* Returns the current thread's priority. */
@@ -595,10 +623,25 @@ allocate_tid (void)
 }
 
 
-/* Executes priority donation from synch.c when a thread acquires the lock.
+/* Removes threads on current_thread's donors list that are waiting on LOCK.
+   Interrupts are already disabled in synch.c from where this is called. */
+void release_threads_waiting_on_lock(struct lock *lock) {
+  ASSERT(intr_get_level() == INTR_OFF);
+  struct list_elem *e = list_begin(&thread_current() -> donors);
+  while (e != list_end(&thread_current() -> donors)) {
+    struct thread *t = list_entry(e, struct thread, donor_elem);
+    if (t -> wanted_lock == lock) {
+      e = list_remove(e);
+    } else {
+      e = list_next(e);
+    }
+  }
+}
 
+/* Executes priority donation from synch.c when a thread acquires the lock.
    Interrupts are disabled during the execution of this function. */
 void priority_donation() {
+  ASSERT(intr_get_level() == INTR_OFF);
   // int depth = 0; implement this later if necessary with deadlock depth of 8
   struct thread *iter_thread = thread_current();
   struct lock *iter_lock = iter_thread -> wanted_lock;
@@ -615,6 +658,29 @@ void priority_donation() {
     iter_lock = holding_thread -> wanted_lock;
     // depth++;
   }
+}
+
+/* Updates the priority of current_thread upon the release of a lock or
+   when when we set the priority of the thread.
+   This function is called right after we've just removed some threads
+   that were potentially donating their priority from the current thread's
+   donor list in synch.c.
+
+   Interrupts are disabled during the exeuction of this function. */
+void update_priority() {
+  ASSERT(intr_get_level() == INTR_OFF);
+  struct thread *t = thread_current();
+  t -> priority = t -> orig_priority;
+  if (list_empty(&t -> donors)) {
+    return;
+  } else {
+    struct list_elem *max_elem = list_max(&t -> donors, &donor_priority_less, NULL);
+    struct thread *max_priority_thread = list_entry(max_elem, struct thread, donor_elem);
+    if (max_priority_thread -> priority > t -> orig_priority) {
+      t -> priority = max_priority_thread -> priority;
+    }
+  }
+  // checks max priority in synch.c after interrupts are enabled again
 }
 
 /* Checks to see if the current thread has maximum priority. If not, then this

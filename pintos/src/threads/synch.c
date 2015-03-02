@@ -221,9 +221,6 @@ lock_acquire (struct lock *lock)
   lock -> holder = curr_thread;
 
   intr_set_level(prev_status);
-
-  // sema_down (&lock->semaphore);
-  // lock->holder = thread_current ();
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -257,8 +254,20 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
-  lock->holder = NULL;
-  sema_up (&lock->semaphore);
+  // OUR CODE HERE
+  lock -> holder = NULL;
+  sema_up(&lock -> semaphore); // i think it's called here before we call release_threads_waiting_on_lock...
+
+  enum intr_level prev_status = intr_disable();
+
+  release_threads_waiting_on_lock(lock);
+  update_priority();
+
+  intr_set_level(prev_status);
+  check_max_priority();
+
+  // lock->holder = NULL;
+  // sema_up (&lock->semaphore);
 }
 
 /* Returns true if the current thread holds LOCK, false

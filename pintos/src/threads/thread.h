@@ -154,7 +154,12 @@ int thread_get_load_avg (void);
 // MY CODE HERE
 void check_max_priority(void);
 void priority_donation(void);
+void release_threads_waiting_on_lock(struct lock *lock);
+void update_priority(void);
 bool priority_less(const struct list_elem *a,
                    const struct list_elem *b, void *aux);
+bool
+donor_priority_less(const struct list_elem *a,
+              const struct list_elem *b, void *aux UNUSED);
 
 #endif /* threads/thread.h */
