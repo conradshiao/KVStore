@@ -121,7 +121,10 @@ sema_up (struct semaphore *sema)
                        struct thread, elem);
     list_remove(&max_t -> elem);
     thread_unblock(max_t);
+    check_max_priority();
   }
+
+
   // sema->value++;
   intr_set_level (old_level);
 }
@@ -202,6 +205,7 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
+  // OUR CODE HERE
   enum intr_level prev_status = intr_disable();
 
   struct thread *curr_thread = thread_current();
@@ -265,9 +269,6 @@ lock_release (struct lock *lock)
 
   intr_set_level(prev_status);
   check_max_priority();
-
-  // lock->holder = NULL;
-  // sema_up (&lock->semaphore);
 }
 
 /* Returns true if the current thread holds LOCK, false
@@ -351,9 +352,36 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
   ASSERT (!intr_context ());
   ASSERT (lock_held_by_current_thread (lock));
 
-  if (!list_empty (&cond->waiters)) 
-    sema_up (&list_entry (list_pop_front (&cond->waiters),
-                          struct semaphore_elem, elem)->semaphore);
+  if (list_empty(&cond -> waiters)) {
+    return;
+  }
+  enum intr_level prev_status = intr_disable();
+  // initializing variables: released, max_priority, and want_to_remove
+  struct list_elem *removed_elem = list_front(&cond -> waiters);
+  struct semaphore *released = &list_entry(removed_elem, struct semaphore_elem,
+                                           elem)->semaphore;
+  struct thread *t = list_entry(list_max(&released->waiters, &priority_less, NULL),
+                                struct thread, elem);
+  int max_priority = t -> priority;
+  struct list_elem *e;
+  for (e = list_begin (&cond -> waiters); e != list_end (&cond -> waiters);
+       e = list_next (e))
+    {
+      struct semaphore* curr = &list_entry(e, struct semaphore_elem, elem)->semaphore;
+      struct thread *t = list_entry(list_max(&curr -> waiters, &priority_less, NULL),
+                         struct thread, elem);
+      // msg("Max priority: %d", max_priority);
+      // msg("Curr priority: %d", t -> priority);
+      // msg("");
+      if (t -> priority > max_priority) {
+        max_priority = t -> priority;
+        released = curr;
+        removed_elem = e;
+      }
+    }
+  list_remove(removed_elem);
+  intr_set_level(prev_status);
+  sema_up(released);
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by

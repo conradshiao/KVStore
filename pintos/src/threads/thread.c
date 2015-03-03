@@ -383,6 +383,9 @@ thread_set_priority (int new_priority)
 int
 thread_get_priority (void) 
 {
+  enum intr_level prev_level = intr_disable();
+  update_priority();
+  intr_set_level(prev_level);
   return thread_current ()->priority;
 }
 
