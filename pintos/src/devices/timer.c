@@ -96,10 +96,7 @@ timer_elapsed (int64_t then)
    list_elem fields A and B. Returns true iff the wakeup_time of
    thread constructed from A is less than that of the one constructed by B. */
 bool compare_wakeup(const struct list_elem *a,
-                    const struct list_elem *b, void *aux) {
-  if (aux != NULL) {
-    printf("lsdkfj\n");
-  }
+                    const struct list_elem *b, void *aux UNUSED) {
   struct thread *first = list_entry(a, struct thread, timer_elem);
   struct thread *second = list_entry(b, struct thread, timer_elem);
   return (first -> wakeup_time) < (second -> wakeup_time);
@@ -109,9 +106,7 @@ bool compare_wakeup(const struct list_elem *a,
    be turned on. */
 void
 timer_sleep (int64_t ticks) 
-{
-  int64_t start = timer_ticks ();
-  
+{  
   ASSERT (intr_get_level () == INTR_ON);
 
   struct thread *curr_thread = thread_current();
@@ -198,8 +193,7 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
-
-  enum intr_level prev_status = intr_disable();
+  ASSERT(intr_get_level() == INTR_OFF); // MY CODE HERE
 
   struct thread *curr_thread;
   while (!list_empty(&sleeping_threads)) {
@@ -212,8 +206,7 @@ timer_interrupt (struct intr_frame *args UNUSED)
       list_pop_front(&sleeping_threads);
     }
   }
-
-  intr_set_level(prev_status);
+  check_max_priority();
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
