@@ -215,7 +215,6 @@ thread_block (void)
 
   thread_current ()->status = THREAD_BLOCKED;
   schedule ();
-  //intr_enable ();    // TESTING 
 }
 
 /* Transitions a blocked thread T to the ready-to-run state.
@@ -290,8 +289,6 @@ thread_exit (void)
   list_remove (&thread_current()->allelem);
   thread_current ()->status = THREAD_DYING;
   schedule ();
-  //intr_enable ();      //TESTING 
-
   NOT_REACHED ();
 }
 
@@ -341,30 +338,10 @@ bool
 priority_less(const struct list_elem *a,
               const struct list_elem *b, void *aux UNUSED)
 {
-  // printf("in priority_less\n");
-  if (aux != NULL) {
-    printf("should never hit this. ignore\n");
-  }
   struct thread *first = list_entry(a, struct thread, elem);
   struct thread *second = list_entry(b, struct thread, elem);
   return first->priority < second->priority;
-  // printf("finished priority_less\n");
 }
-
-bool
-donor_less(const struct list_elem *a,
-              const struct list_elem *b, void *aux)
-{
-  // printf("in priority_less\n");
-  if (aux != NULL) {
-    printf("should never hit this. ignore\n");
-  }
-  struct thread *first = list_entry(a, struct thread, donor_elem);
-  struct thread *second = list_entry(b, struct thread, donor_elem);
-  return first->priority < second->priority;
-  // printf("finished priority_less\n");
-}
-
 
 /* Ordering function based on the priority field of threads on list of donors
    of the current thread.
@@ -379,6 +356,7 @@ donor_priority_less(const struct list_elem *a,
   struct thread *second = list_entry(b, struct thread, donor_elem);
   return first->priority < second->priority;
 }
+
 
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
@@ -411,6 +389,9 @@ thread_set_priority (int new_priority)
 int
 thread_get_priority (void) 
 {
+  enum intr_level prev_level = intr_disable();
+  update_priority();
+  intr_set_level(prev_level);
   return thread_current ()->priority;
 }
 
@@ -608,7 +589,7 @@ thread_schedule_tail (struct thread *prev)
      pull out the rug under itself.  (We don't free
      initial_thread because its memory was not obtained via
      palloc().) */
-  if (prev != NULL && prev->status == THREAD_DYING && prev != initial_thread)
+  if (prev != NULL && prev->status == THREAD_DYING && prev != initial_thread) 
     {
       ASSERT (prev != cur);
       palloc_free_page (prev);
@@ -665,14 +646,13 @@ void release_threads_waiting_on_lock(struct lock *lock) {
       e = list_next(e);
     }
   }
-
 }
 
 /* Executes priority donation from synch.c when a thread acquires the lock.
    Interrupts are disabled during the execution of this function. */
 void priority_donation() {
   ASSERT(intr_get_level() == INTR_OFF);
-  // int depth = 0; implement this later if necessary with deadlock depth of 8
+  int depth = 0;
   struct thread *iter_thread = thread_current();
   struct lock *iter_lock = iter_thread -> wanted_lock;
   while (iter_lock != NULL) {
@@ -686,7 +666,7 @@ void priority_donation() {
     holding_thread -> priority = iter_thread -> priority;
     iter_thread = holding_thread;
     iter_lock = holding_thread -> wanted_lock;
-    // depth++;
+    depth++;
   }
 }
 
@@ -695,6 +675,9 @@ void priority_donation() {
    This function is called right after we've just removed some threads
    that were potentially donating their priority from the current thread's
    donor list in synch.c.
+
+   check_max_priority() function is always called after this function after
+   interrupts are re-enabled, so that check_max_priority can yield again.
 
    Interrupts are disabled during the exeuction of this function. */
 void update_priority() {
@@ -710,7 +693,6 @@ void update_priority() {
       t -> priority = max_priority_thread -> priority;
     }
   }
-  // checks max priority in synch.c after interrupts are enabled again
 }
 
 /* Checks to see if the current thread has maximum priority. If not, then this

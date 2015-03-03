@@ -95,7 +95,6 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
-    // OUR CODE HERE
     int64_t wakeup_time;                /* Time thread needs to wake up, given that it's sleeping. */
 
     /* list_elem struct for timer.c access for sleeping_threads list. */
@@ -164,6 +163,9 @@ bool priority_less(const struct list_elem *a,
 bool
 donor_priority_less(const struct list_elem *a,
               const struct list_elem *b, void *aux UNUSED);
->>>>>>> bf3f91b5d267a581635044c008f0af0ed2766be0
+
+
+
+
 
 #endif /* threads/thread.h */
