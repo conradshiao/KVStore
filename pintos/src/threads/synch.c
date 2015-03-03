@@ -123,9 +123,6 @@ sema_up (struct semaphore *sema)
     thread_unblock(max_t);
     check_max_priority();
   }
-
-
-  // sema->value++;
   intr_set_level (old_level);
 }
 
@@ -218,7 +215,7 @@ lock_acquire (struct lock *lock)
 
   intr_set_level(prev_status);
 
-  sema_down(&lock -> semaphore); // atomic operation, interrupt status doesn't matter atm
+  sema_down(&lock -> semaphore); // atomic operation, interrupt status doesn't matter atm i think?
 
   prev_status = intr_disable();
   curr_thread -> wanted_lock = NULL;
@@ -260,7 +257,7 @@ lock_release (struct lock *lock)
 
   // OUR CODE HERE
   lock -> holder = NULL;
-  sema_up(&lock -> semaphore); // i think it's called here before we call release_threads_waiting_on_lock...
+  sema_up(&lock -> semaphore);
 
   enum intr_level prev_status = intr_disable();
 
@@ -268,6 +265,7 @@ lock_release (struct lock *lock)
   update_priority();
 
   intr_set_level(prev_status);
+
   check_max_priority();
 }
 
@@ -356,10 +354,9 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
     return;
   }
   enum intr_level prev_status = intr_disable();
-  // initializing variables: released, max_priority, and want_to_remove
+  // initializing variables: released, max_priority, and removed_elem
   struct list_elem *removed_elem = list_front(&cond -> waiters);
-  struct semaphore *released = &list_entry(removed_elem, struct semaphore_elem,
-                                           elem)->semaphore;
+  struct semaphore *released = &list_entry(removed_elem, struct semaphore_elem, elem)->semaphore;
   struct thread *t = list_entry(list_max(&released->waiters, &priority_less, NULL),
                                 struct thread, elem);
   int max_priority = t -> priority;
@@ -370,9 +367,6 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
       struct semaphore* curr = &list_entry(e, struct semaphore_elem, elem)->semaphore;
       struct thread *t = list_entry(list_max(&curr -> waiters, &priority_less, NULL),
                          struct thread, elem);
-      // msg("Max priority: %d", max_priority);
-      // msg("Curr priority: %d", t -> priority);
-      // msg("");
       if (t -> priority > max_priority) {
         max_priority = t -> priority;
         released = curr;
@@ -380,7 +374,9 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
       }
     }
   list_remove(removed_elem);
+
   intr_set_level(prev_status);
+
   sema_up(released);
 }
 
