@@ -134,6 +134,9 @@ thread_tick (void)
   else
     kernel_ticks++;
 
+  // karen's code
+  thread_current()->recent_cpu = fix_add(thread_current()->recent_cpu, fix_int(1));
+
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
     intr_yield_on_return ();
@@ -400,7 +403,8 @@ thread_set_nice (int nice UNUSED)
   fixed_point_t tmp = fix_unscale(t->recent_cpu, 4);
   tmp = fix_sub(tmp, fix_scale(fix_int(nice), 2));
   tmp = fix_sub(fix_int(PRI_MAX), tmp);
-  thread_set_priority(tmp.f);
+  thread_set_priority(fix_trunc(tmp));
+}
 
 /* Returns the current thread's nice value. */
 int
@@ -418,7 +422,7 @@ thread_get_load_avg (void)
   fixed_point_t tmp = fix_mul(fix_frac(59, 60), load_avg);
   tmp = fix_add(tmp, fix_unscale(fix_int(1+list_size(&ready_list)), 60));
   load_avg = tmp;
-  return fix_scale(load_avg,100).f; // global variable
+  return 100*fix_round(tmp); 
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
@@ -430,7 +434,7 @@ thread_get_recent_cpu (void)
   fixed_point_t tmp = fix_mul(fix_add(num, fix_int(1)), t->recent_cpu);
   tmp = fix_div(num, fix_add(tmp, fix_int(t->nice)));
   t->recent_cpu = tmp;
-  return fix_scale(tmp, 100).f;
+  return 100*fix_round(tmp);
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
