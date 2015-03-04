@@ -199,6 +199,15 @@ thread_create (const char *name, int priority,
   sf->eip = switch_entry;
   sf->ebp = 0;
 
+  struct thread *parent = thread_current(); // or running_thread, i think the same
+  if (parent == initial_thread) {
+    t -> nice = 0;
+    t -> recent_cpu = fix_int(0);
+  } else {
+    t -> nice = parent -> nice;
+    t -> recent_cpu = parent -> recent_cpu;
+  }
+
   /* Add to run queue. */
   thread_unblock (t);
 
@@ -421,10 +430,13 @@ int
 thread_get_load_avg (void) 
 {
   // Should interrupts should be off?
-  ASSERT (intr_get_level () == INTR_ON);
+  //ASSERT (intr_get_level () == INTR_ON);
+
+  enum intr_level prev_status = intr_disable();
   fixed_point_t tmp = fix_mul(fix_frac(59, 60), load_avg);
   tmp = fix_add(tmp, fix_unscale(fix_int(1+list_size(&ready_list)), 60));
   load_avg = tmp;
+  intr_set_level(prev_status);
   return 100*fix_round(tmp); 
 }
 
@@ -434,8 +446,8 @@ thread_get_recent_cpu (void)
 {
   struct thread *t = thread_current();
   fixed_point_t num = fix_scale(load_avg, 2);
-  fixed_point_t tmp = fix_mul(fix_add(num, fix_int(1)), t->recent_cpu);
-  tmp = fix_div(num, fix_add(tmp, fix_int(t->nice)));
+  fixed_point_t tmp = fix_div(num, fix_add(num, fix_int(1)));
+  tmp = fix_add(fix_mul(tmp, t->recent_cpu), fix_int(t->nice));
   t->recent_cpu = tmp;
   return 100*fix_round(tmp);
 }
