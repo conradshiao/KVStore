@@ -378,10 +378,6 @@ thread_set_priority (int new_priority)
     intr_set_level(prev_status);
     check_max_priority();
   }
-  // thread_current ()->orig_priority = new_priority;
-  // thread_current() -> priority = new_priority;
-  // // OUR CODE BELOW
-  // check_max_priority();
 }
 
 /* Returns the current thread's priority. */
