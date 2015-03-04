@@ -146,13 +146,15 @@ thread_tick (void)
   // karen's code
   thread_current()->recent_cpu = fix_add(thread_current()->recent_cpu, fix_int(1));
 
+  if (thread_mlfqs && thread_ticks % TIME_SLICE == 0) {
+    thread_foreach(&mlfqs_update_priority, NULL);
+  }
+  
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
     intr_yield_on_return ();
 
-  if (thread_ticks % TIME_SLICE == 0) {
-    thread_foreach(&mlfqs_update_priority, NULL);
-  }
+  
   check_max_priority();
 }
 
@@ -395,7 +397,7 @@ thread_set_priority (int new_priority)
   struct thread *curr_thread = thread_current();
   int prev_priority = curr_thread -> priority;
   curr_thread -> orig_priority = new_priority;
-
+  //if (thread_mlfqs) {return;}
   enum intr_level prev_status = intr_disable();
   if (prev_priority < new_priority) {
     curr_thread -> priority = new_priority;
