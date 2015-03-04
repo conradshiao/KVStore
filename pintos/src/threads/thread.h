@@ -101,6 +101,13 @@ struct thread
     /* semaphore to control access of when this thread is sleeping or not in timer.c */        
     struct semaphore timer_semaphore;
 
+    int orig_priority;                  /* original priority. */
+    struct list donors;                 /* list of donor threads (threads waiting on my locks).*/
+    struct list_elem donor_elem;        /* list element for donor list. */
+    struct thread *donee;               /* thread that I donate to. */
+    struct lock *wanted_lock;            /* lock that I wait for. */
+
+
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */

@@ -343,7 +343,8 @@ priority_less(const struct list_elem *a,
   return first->priority < second->priority;
 }
 
-/* Sets the current thread's priority to NEW_PRIORITY. */
+/* Sets the current thread's priority to NEW_PRIORITY. If the current
+   thread no longer has maximum priority, it yields. */
 void
 thread_set_priority (int new_priority) 
 {
@@ -479,8 +480,13 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
-  sema_init(&t->timer_semaphore, 0); // OUR CODE HERE
-
+  // OUR CODE HERE
+  sema_init(&t->timer_semaphore, 0);
+  // PRIORITY SECTION
+  t -> orig_priority = priority;
+  list_init(&t -> donors);
+  lock_init(&t -> wanted_lock); // so. don't know about this yet if pointer i guess
+  // END SECTION
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);

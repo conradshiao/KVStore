@@ -114,7 +114,7 @@ sema_up (struct semaphore *sema)
   ASSERT (sema != NULL);
 
   old_level = intr_disable ();
-  if (!list_empty (&sema->waiters)) {
+  while (!list_empty (&sema->waiters)) {  // OUR CODE HERE: changed if to while 
     thread_unblock (list_entry (list_pop_front (&sema->waiters),
                                 struct thread, elem));
   }
@@ -197,9 +197,28 @@ lock_acquire (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
-
+  // OUR CODE HERE BELOW
+  struct thread curr = thread_current();
+  // END
   sema_down (&lock->semaphore);
-  lock->holder = thread_current ();
+  // lock->holder = thread_current();     ORIGINAL CODE
+  // OUR CODE HERE BELOW
+  curr->wanted_lock = lock;
+  struct thread old_holder = lock->holder;
+  while (lock) {
+    if (old_holder == NULL) {
+      return;
+    } else {
+      if (old_holder->priority > curr->priority) {
+        return;
+      } else {
+        thread_set_priority(old_holder->priority);
+        lock->holder = curr;
+        //Update lock = lock thread is waiting on  ???? I don't know what this means
+      }
+    }
+  }
+  // END
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -235,6 +254,13 @@ lock_release (struct lock *lock)
 
   lock->holder = NULL;
   sema_up (&lock->semaphore);
+  //it unblocks the thread that donated to it
+  // OUR CODE HERE BELOW
+  struct curr_thread = thread_current();
+  list_init(curr_thread -> donors);   //remove all dependencies b/c sema up clears all things dependent on it
+                                      //reinitializes list as empty
+  thread_set_priority(curr_thread -> orig_priority);
+  //well... if lower priority it will yield and the new thread will get the lock
 }
 
 /* Returns true if the current thread holds LOCK, false
