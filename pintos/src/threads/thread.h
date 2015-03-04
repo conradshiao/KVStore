@@ -26,6 +26,9 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
+// karen added this
+fixed_point_t load_avg;
+
 /* A kernel thread or user process.
 
    Each thread structure is stored in its own 4 kB page.  The
@@ -107,6 +110,9 @@ struct thread
     struct list donors;                 /* List of donor threads (threads waiting on my lock). */
     struct list_elem donor_elem;        /* list_elem to access my donor list. */
     struct lock *wanted_lock;           /* Lock that I am currently waiting for (NULL if none). */
+
+    int nice;                           /* Nice value */
+    fixed_point_t recent_cpu;           /* Recent CPU time */
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */

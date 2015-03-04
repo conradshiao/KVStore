@@ -7,6 +7,7 @@
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
+#include "threads/fixed-point.h" // karen added this
   
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -44,6 +45,8 @@ timer_init (void)
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
   list_init(&sleeping_threads);
+
+  load_avg = fix_int(0);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -194,6 +197,12 @@ timer_interrupt (struct intr_frame *args UNUSED)
   ticks++;
   thread_tick ();
   ASSERT(intr_get_level() == INTR_OFF); // MY CODE HERE
+
+  // karen's code -- do we need their return values?
+  if (ticks % TIMER_FREQ == 0) {
+    thread_get_load_avg();
+    thread_get_recent_cpu();
+  }
 
   struct thread *curr_thread;
   while (!list_empty(&sleeping_threads)) {
