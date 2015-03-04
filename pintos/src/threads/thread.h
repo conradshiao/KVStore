@@ -26,6 +26,9 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
+// karen added this
+fixed_point_t load_avg;
+
 /* A kernel thread or user process.
 
    Each thread structure is stored in its own 4 kB page.  The
@@ -102,11 +105,13 @@ struct thread
     /* semaphore to control access of when this thread is sleeping or not in timer.c */ 
     struct semaphore timer_semaphore;
 
-    int orig_priority;                  /* original priority. */
-    struct list donors;                 /* list of donor threads (threads waiting on my locks).*/
-    struct list_elem donor_elem;        /* list element for donor list. */
-    struct thread *donee;               /* thread that I donate to. */
-    struct lock *wanted_lock;            /* lock that I wait for. */
+    int orig_priority;                  /* My original priority if I had no priority donation. */
+    struct list donors;                 /* List of donor threads (threads waiting on my lock). */
+    struct list_elem donor_elem;        /* list_elem to access my donor list. */
+    struct lock *wanted_lock;           /* Lock that I am currently waiting for (NULL if none). */
+
+    int nice;                           /* Nice value */
+    fixed_point_t recent_cpu;           /* Recent CPU time */
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -163,5 +168,9 @@ bool priority_less(const struct list_elem *a,
 bool
 donor_priority_less(const struct list_elem *a,
               const struct list_elem *b, void *aux UNUSED);
+
+
+
+
 
 #endif /* threads/thread.h */

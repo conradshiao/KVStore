@@ -268,6 +268,9 @@ lock_release (struct lock *lock)
   intr_set_level(prev_status);
 
   check_max_priority();
+
+  //intr_set_level(prev_status);
+
 }
 
 /* Returns true if the current thread holds LOCK, false
@@ -375,7 +378,6 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
       }
     }
   list_remove(removed_elem);
-
   intr_set_level(prev_status);
 
   sema_up(released);

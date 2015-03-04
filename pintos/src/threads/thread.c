@@ -15,6 +15,8 @@
 #include "userprog/process.h"
 #endif
 
+#include "threads/fixed-point.h"
+
 /* Random value for struct thread's `magic' member.
    Used to detect stack overflow.  See the big comment at the top
    of thread.h for details. */
@@ -132,6 +134,9 @@ thread_tick (void)
   else
     kernel_ticks++;
 
+  // karen's code
+  thread_current()->recent_cpu = fix_add(thread_current()->recent_cpu, fix_int(1));
+
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
     intr_yield_on_return ();
@@ -193,6 +198,15 @@ thread_create (const char *name, int priority,
   sf = alloc_frame (t, sizeof *sf);
   sf->eip = switch_entry;
   sf->ebp = 0;
+
+  struct thread *parent = thread_current(); // or running_thread, i think the same
+  if (parent == initial_thread) {
+    t -> nice = 0;
+    t -> recent_cpu = fix_int(0);
+  } else {
+    t -> nice = parent -> nice;
+    t -> recent_cpu = parent -> recent_cpu;
+  }
 
   /* Add to run queue. */
   thread_unblock (t);
@@ -327,8 +341,10 @@ thread_foreach (thread_action_func *func, void *aux)
     }
 }
 
+
 // OUR CODE BELOW
 /* Ordering function based on the priority field of threads on ready_list.
+
    Returns true iff the priority of the thread constructed from a
    is less than that of b.
 */
@@ -355,11 +371,14 @@ donor_priority_less(const struct list_elem *a,
   return first->priority < second->priority;
 }
 
+
+
 /* Sets the current thread's priority to NEW_PRIORITY. */
 
 void
 thread_set_priority (int new_priority) 
 {
+
   struct thread *curr_thread = thread_current();
   int prev_priority = curr_thread -> priority;
   curr_thread -> orig_priority = new_priority;
@@ -374,10 +393,8 @@ thread_set_priority (int new_priority)
     intr_set_level(prev_status);
     check_max_priority();
   }
-  // thread_current ()->orig_priority = new_priority;
-  // thread_current() -> priority = new_priority;
-  // // OUR CODE BELOW
-  // check_max_priority();
+
+
 }
 
 /* Returns the current thread's priority. */
@@ -394,31 +411,46 @@ thread_get_priority (void)
 void
 thread_set_nice (int nice UNUSED) 
 {
-  /* Not yet implemented. */
+  struct thread *t = thread_current();
+  t->nice = nice;
+  fixed_point_t tmp = fix_unscale(t->recent_cpu, 4);
+  tmp = fix_sub(tmp, fix_scale(fix_int(nice), 2));
+  tmp = fix_sub(fix_int(PRI_MAX), tmp);
+  thread_set_priority(fix_trunc(tmp));
 }
 
 /* Returns the current thread's nice value. */
 int
 thread_get_nice (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return thread_current() -> nice;
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  // Should interrupts should be off?
+  //ASSERT (intr_get_level () == INTR_ON);
+
+  enum intr_level prev_status = intr_disable();
+  fixed_point_t tmp = fix_mul(fix_frac(59, 60), load_avg);
+  tmp = fix_add(tmp, fix_unscale(fix_int(1+list_size(&ready_list)), 60));
+  load_avg = tmp;
+  intr_set_level(prev_status);
+  return 100*fix_round(tmp); 
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  struct thread *t = thread_current();
+  fixed_point_t num = fix_scale(load_avg, 2);
+  fixed_point_t tmp = fix_div(num, fix_add(num, fix_int(1)));
+  tmp = fix_add(fix_mul(tmp, t->recent_cpu), fix_int(t->nice));
+  t->recent_cpu = tmp;
+  return 100*fix_round(tmp);
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -505,6 +537,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
+
   // OUR CODE HERE
   sema_init(&t->timer_semaphore, 0);
   t -> orig_priority = priority;
