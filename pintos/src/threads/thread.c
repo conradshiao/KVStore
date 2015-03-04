@@ -63,6 +63,7 @@ bool thread_mlfqs;
 
 static void kernel_thread (thread_func *, void *aux);
 
+void mlfqs_update_priority (struct thread *t, void *aux);
 static void idle (void *aux UNUSED);
 static struct thread *running_thread (void);
 static struct thread *next_thread_to_run (void);
@@ -117,6 +118,14 @@ thread_start (void)
   sema_down (&idle_started);
 }
 
+void
+mlfqs_update_priority (struct thread *t, void *aux) {
+  fixed_point_t tmp = fix_unscale(t->recent_cpu, 4);
+  tmp = fix_sub(tmp, fix_scale(fix_int(t->nice), 2));
+  tmp = fix_sub(fix_int(PRI_MAX), tmp);
+  t->priority = fix_trunc(tmp);
+}
+
 /* Called by the timer interrupt handler at each timer tick.
    Thus, this function runs in an external interrupt context. */
 void
@@ -140,6 +149,11 @@ thread_tick (void)
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
     intr_yield_on_return ();
+
+  if (thread_ticks % TIME_SLICE == 0) {
+    thread_foreach(&mlfqs_update_priority, NULL);
+  }
+  check_max_priority();
 }
 
 /* Prints thread statistics. */
@@ -410,12 +424,14 @@ thread_get_priority (void)
 void
 thread_set_nice (int nice UNUSED) 
 {
+  //enum intr_level prev_level = intr_disable();
   struct thread *t = thread_current();
   t->nice = nice;
   fixed_point_t tmp = fix_unscale(t->recent_cpu, 4);
   tmp = fix_sub(tmp, fix_scale(fix_int(nice), 2));
   tmp = fix_sub(fix_int(PRI_MAX), tmp);
   thread_set_priority(fix_trunc(tmp));
+
 }
 
 /* Returns the current thread's nice value. */
@@ -434,7 +450,13 @@ thread_get_load_avg (void)
 
   enum intr_level prev_status = intr_disable();
   fixed_point_t tmp = fix_mul(fix_frac(59, 60), load_avg);
-  tmp = fix_add(tmp, fix_unscale(fix_int(1+list_size(&ready_list)), 60));
+  struct thread* t = thread_current();
+  if (t == idle_thread) {
+    tmp = fix_add(tmp, fix_unscale(fix_int(list_size(&ready_list)), 60));
+  } else {
+    tmp = fix_add(tmp, fix_unscale(fix_int(1 + list_size(&ready_list)), 60));
+  }
+  //tmp = fix_add(tmp, fix_unscale(t==idle_thread? fix_int(list_size(&ready_list)):fix_int(1+list_size(&ready_list)), 60));
   load_avg = tmp;
   intr_set_level(prev_status);
   return 100*fix_round(tmp); 
