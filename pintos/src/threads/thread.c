@@ -15,6 +15,8 @@
 #include "userprog/process.h"
 #endif
 
+#include "threads/fixed-point.h"
+
 /* Random value for struct thread's `magic' member.
    Used to detect stack overflow.  See the big comment at the top
    of thread.h for details. */
@@ -389,31 +391,42 @@ thread_get_priority (void)
 void
 thread_set_nice (int nice UNUSED) 
 {
-  /* Not yet implemented. */
-}
+  struct thread *t = thread_current();
+  t->nice = nice;
+  fixed_point_t tmp = fix_unscale(t->recent_cpu, 4);
+  tmp = fix_sub(tmp, fix_scale(fix_int(nice), 2));
+  tmp = fix_sub(fix_int(PRI_MAX), tmp);
+  thread_set_priority(tmp.f);
 
 /* Returns the current thread's nice value. */
 int
 thread_get_nice (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return thread_current() -> nice;
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  // Should interrupts should be off?
+  ASSERT (intr_get_level () == INTR_ON);
+  fixed_point_t tmp = fix_mul(fix_frac(59, 60), load_avg);
+  tmp = fix_add(tmp, fix_unscale(fix_int(1+list_size(&ready_list)), 60));
+  load_avg = tmp;
+  return fix_scale(load_avg,100).f; // global variable
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  struct thread *t = thread_current();
+  fixed_point_t num = fix_scale(load_avg, 2);
+  fixed_point_t tmp = fix_mul(fix_add(num, fix_int(1)), t->recent_cpu);
+  tmp = fix_div(num, fix_add(tmp, fix_int(t->nice)));
+  t->recent_cpu = tmp;
+  return fix_scale(tmp, 100).f;
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
