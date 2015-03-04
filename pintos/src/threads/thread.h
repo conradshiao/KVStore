@@ -94,11 +94,12 @@ struct thread
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
+
     int64_t wakeup_time;                /* Time thread needs to wake up, given that it's sleeping. */
 
-    /* list_elem struct for timer.c access for sleeping_threads lsit. */
+    /* list_elem struct for timer.c access for sleeping_threads list. */
     struct list_elem timer_elem;
-    /* semaphore to control access of when this thread is sleeping or not in timer.c */        
+    /* semaphore to control access of when this thread is sleeping or not in timer.c */ 
     struct semaphore timer_semaphore;
 
     int orig_priority;                  /* original priority. */
@@ -106,7 +107,6 @@ struct thread
     struct list_elem donor_elem;        /* list element for donor list. */
     struct thread *donee;               /* thread that I donate to. */
     struct lock *wanted_lock;            /* lock that I wait for. */
-
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -152,5 +152,16 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+// MY CODE HERE
+void check_max_priority(void);
+void priority_donation(void);
+void release_threads_waiting_on_lock(struct lock *lock);
+void update_priority(void);
+bool priority_less(const struct list_elem *a,
+                   const struct list_elem *b, void *aux);
+bool
+donor_priority_less(const struct list_elem *a,
+              const struct list_elem *b, void *aux UNUSED);
 
 #endif /* threads/thread.h */
