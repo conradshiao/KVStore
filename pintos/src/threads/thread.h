@@ -26,8 +26,8 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
-// karen added this
-fixed_point_t load_avg;
+// OUR CODE HERE
+#define TIME_SLICE 4
 
 /* A kernel thread or user process.
 
@@ -165,13 +165,11 @@ void priority_donation(void);
 void release_threads_waiting_on_lock(struct lock *lock);
 void update_priority(void);
 bool priority_less(const struct list_elem *a,
-                   const struct list_elem *b, void *aux);
-bool
-donor_priority_less(const struct list_elem *a,
-              const struct list_elem *b, void *aux UNUSED);
-
-
-
-
+                   const struct list_elem *b, void *aux UNUSED);
+bool donor_priority_less(const struct list_elem *a,
+                         const struct list_elem *b, void *aux UNUSED);
+void mlfqs_reset_priorities(void);
+void mlfqs_reset_recent_cpu(void);
+void mlfqs_update_load_avg(void);
 
 #endif /* threads/thread.h */
