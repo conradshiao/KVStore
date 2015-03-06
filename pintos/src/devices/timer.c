@@ -11,6 +11,7 @@
   
 /* See [8254] for hardware details of the 8254 timer chip. */
 
+/* There are TIMER_FREQ timer ticks per second. */
 #if TIMER_FREQ < 19
 #error 8254 timer requires TIMER_FREQ >= 19
 #endif
@@ -25,8 +26,12 @@ static int64_t ticks;
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
 
+// OUR CODE HERE
 static struct list sleeping_threads;
 
+/* Every fourth tick, we recalculate each thread's priority when
+   thread_mlfqs option is set to true. */
+#define BSD_PRIORITY_TIME_SLICE 4
 
 static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
@@ -34,6 +39,7 @@ static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
 
+// OUR CODE HERE
 bool compare_wakeup(const struct list_elem *a,
                     const struct list_elem *b, void *aux);
 
@@ -45,8 +51,6 @@ timer_init (void)
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
   list_init(&sleeping_threads);
-
-  load_avg = fix_int(0);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -112,10 +116,10 @@ timer_sleep (int64_t ticks)
 {  
   ASSERT (intr_get_level () == INTR_ON);
 
+  enum intr_level prev_status = intr_disable();
+
   struct thread *curr_thread = thread_current();
   curr_thread -> wakeup_time = timer_ticks() + ticks;
-
-  enum intr_level prev_status = intr_disable();
   list_insert_ordered(&sleeping_threads, &curr_thread -> timer_elem,
                       &compare_wakeup, NULL);
   intr_set_level(prev_status);
@@ -194,17 +198,21 @@ timer_print_stats (void)
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
-  ticks++;
-  thread_tick ();
   ASSERT(intr_get_level() == INTR_OFF); // MY CODE HERE
+  ticks++;
+  thread_tick();
 
-  // karen's code -- do we need their return values?
-  if (ticks % TIMER_FREQ == 0) {
-    thread_get_load_avg();
-    thread_get_recent_cpu();
+  // OUR CODE HERE
+  if (thread_mlfqs) {
+    if (ticks % TIMER_FREQ == 0) { // 1 second = TIMER_FREQ timer ticks
+      mlfqs_reset_recent_cpu();
+      mlfqs_update_load_avg();
+    }
+    if (ticks % BSD_PRIORITY_TIME_SLICE == 0) { // every 4 timer ticks
+      mlfqs_reset_priorities();
+    }
   }
 
-  struct thread *curr_thread;
   while (!list_empty(&sleeping_threads)) {
     struct list_elem *e = list_begin(&sleeping_threads);
     struct thread *curr_thread = list_entry(e, struct thread, timer_elem);
