@@ -119,7 +119,7 @@ sema_up (struct semaphore *sema)
     // OUR CODE HERE
     struct thread *max_t;
     max_t = list_entry(list_max(&sema->waiters, &priority_less, NULL),
-                        struct thread, elem);
+                       struct thread, elem);
     list_remove(&max_t->elem);
     thread_unblock(max_t);
     check_max_priority(); // yields if necessary
@@ -260,10 +260,8 @@ lock_release (struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
 
   // OUR CODE HERE
-  lock->holder = NULL;
-
   enum intr_level prev_status = intr_disable();
-
+  lock->holder = NULL;
   if (!thread_mlfqs) {
     release_threads_waiting_on_lock(lock);
     update_priority();
@@ -374,6 +372,7 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
 
   struct list_elem *e;
   struct semaphore *curr;
+  /* Finding the semaphore that contains the highest priority thread. */
   for (e = list_begin (&cond->waiters); e != list_end (&cond->waiters);
        e = list_next (e))
     {
@@ -388,7 +387,7 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
     }
 
   list_remove(removed_elem);
-
+  /* sema_up the semaphore we found to unblock that highest priority thread. */
   sema_up(released);
 
   intr_set_level(prev_status);

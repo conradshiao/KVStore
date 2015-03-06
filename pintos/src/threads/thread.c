@@ -229,10 +229,9 @@ thread_create (const char *name, int priority,
   thread_unblock (t);
 
   // OUR CODE HERE
-  // enum intr_level prev_status = intr_disable();
   /* might yield because we're creating a higher priority thread */
   check_max_priority();
-  // intr_set_level(prev_status);
+  
   return tid;
 }
 
@@ -267,6 +266,7 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
+  /* Preserve sorted order of ready_list. */
   list_insert_ordered(&ready_list, &t->elem, &thread_greater_priority, NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
@@ -337,8 +337,11 @@ thread_yield (void)
   ASSERT (!intr_context ());
 
   old_level = intr_disable ();
-  if (cur != idle_thread) 
-    list_insert_ordered (&ready_list, &cur->elem, &thread_greater_priority, NULL);
+  if (cur != idle_thread) {
+    /* Preserve sorted order of ready_list. */ 
+    list_insert_ordered (&ready_list, &cur->elem, &thread_greater_priority,
+                         NULL);
+  }
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -434,6 +437,7 @@ void
 thread_set_nice (int nice) 
 {
   ASSERT(thread_mlfqs);
+
   enum intr_level prev_status = intr_disable();
 
   if (nice > MAX_NICE_VALUE) {
@@ -453,6 +457,7 @@ int
 thread_get_nice (void) 
 {
   ASSERT(thread_mlfqs);
+
   enum intr_level prev_status = intr_disable();
   int nice = thread_current()->nice;
   intr_set_level(prev_status);
@@ -464,6 +469,7 @@ int
 thread_get_load_avg (void) 
 {
   ASSERT(thread_mlfqs);
+
   enum intr_level prev_status = intr_disable();
   int ans = fix_round(fix_scale(load_avg, 100));
   intr_set_level(prev_status);
@@ -476,6 +482,7 @@ int
 thread_get_recent_cpu (void) 
 {
   ASSERT(thread_mlfqs);
+
   enum intr_level prev_status = intr_disable();
   int ans = fix_round(fix_scale(thread_current() -> recent_cpu, 100));
   intr_set_level(prev_status);
@@ -578,6 +585,7 @@ init_thread (struct thread *t, const char *name, int priority)
 
   /* Initializing fields for thread_mlfqs scheduler. */
   struct thread *parent = running_thread();
+  /* Initial thread of system starts off with default values. */
   if (parent == initial_thread) {
     t->nice = DEFAULT_NICE_VALUE;
     t->recent_cpu = fix_int(DEFAULT_RECENT_CPU_VALUE);

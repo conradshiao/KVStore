@@ -88,29 +88,37 @@ typedef int tid_t;
 struct thread
   {
     /* Owned by thread.c. */
-    tid_t tid;                          /* Thread identifier. */
-    enum thread_status status;          /* Thread state. */
-    char name[16];                      /* Name (for debugging purposes). */
-    uint8_t *stack;                     /* Saved stack pointer. */
-    int priority;                       /* Priority. */
-    struct list_elem allelem;           /* List element for all threads list. */
+    tid_t tid;                        /* Thread identifier. */
+    enum thread_status status;        /* Thread state. */
+    char name[16];                    /* Name (for debugging purposes). */
+    uint8_t *stack;                   /* Saved stack pointer. */
+    int priority;                     /* Priority. */
+    struct list_elem allelem;         /* List element for all threads list. */
 
     /* Shared between thread.c and synch.c. */
-    struct list_elem elem;              /* List element. */
+    struct list_elem elem;            /* List element. */
 
-    int64_t wakeup_time;                /* Time thread needs to wake up, given that it's sleeping. */
+    int64_t wakeup_time;              /* Time I wake up when sleeping. */
+
+    // OUR CODE HERE
+    /* Fields for timer.c to control when thread sleeps. */
 
     /* list_elem struct for timer.c access for sleeping_threads list. */
     struct list_elem timer_elem;
-    /* semaphore to control access of when this thread is sleeping or not in timer.c */ 
+    /* semaphore to control access of when I am sleeping. */ 
     struct semaphore timer_semaphore;
 
+    /* Fields for priority donation. */
+    int orig_priority;                /* My original priority. */
 
-    int orig_priority;                  /* My original priority if I had no priority donation. */
-    struct list donors;                 /* List of donor threads (threads waiting on my lock). */
-    struct list_elem donor_elem;        /* list_elem to access my donor list. */
-    struct lock *wanted_lock;           /* Lock that I am currently waiting for (NULL if none). */
+    struct list_elem donor_elem;      /* list_elem to access my donor list. */
+    struct list donors;               /* List of threads waiting on the lock I
+                                         hold that donate priority to me. */
+    struct lock *wanted_lock;         /* Lock that I am currently waiting for.
+                                         This will be NULL if I'm not waiting
+                                         on any lock. */
 
+    /* Fields for advanced scheduling. */
     int nice;                           /* Nice value */
     fixed_point_t recent_cpu;           /* Recent CPU time */
 
