@@ -222,7 +222,6 @@ lock_acquire (struct lock *lock)
   lock -> holder = curr_thread;
 
   intr_set_level(prev_status);
->>>>>>> 347d16cc28f6cd7f43d41c7ff962980ce79bd70c
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -258,17 +257,17 @@ lock_release (struct lock *lock)
 
   // OUR CODE HERE
   lock -> holder = NULL;
-  sema_up(&lock -> semaphore);
+  //sema_up(&lock -> semaphore);
 
   enum intr_level prev_status = intr_disable();
 
   if (!thread_mlfqs) {
     release_threads_waiting_on_lock(lock);
     update_priority();
-    check_max_priority();
+   // check_max_priority();
   }
   intr_set_level(prev_status);
-
+  sema_up(&lock -> semaphore);
 
 
   //intr_set_level(prev_status);
