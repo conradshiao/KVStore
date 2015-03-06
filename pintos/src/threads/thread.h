@@ -105,6 +105,7 @@ struct thread
     /* semaphore to control access of when this thread is sleeping or not in timer.c */ 
     struct semaphore timer_semaphore;
 
+
     int orig_priority;                  /* My original priority if I had no priority donation. */
     struct list donors;                 /* List of donor threads (threads waiting on my lock). */
     struct list_elem donor_elem;        /* list_elem to access my donor list. */
@@ -167,6 +168,8 @@ bool priority_less(const struct list_elem *a,
                    const struct list_elem *b, void *aux UNUSED);
 bool donor_priority_less(const struct list_elem *a,
                          const struct list_elem *b, void *aux UNUSED);
+bool thread_greater_priority(const struct list_elem *a,
+                             const struct list_elem *b, void *aux UNUSED);
 void mlfqs_reset_priorities(void);
 void mlfqs_reset_recent_cpu(void);
 void mlfqs_update_load_avg(void);

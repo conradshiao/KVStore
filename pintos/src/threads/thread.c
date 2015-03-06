@@ -82,6 +82,7 @@ static fixed_point_t load_avg;
 #define DEFAULT_NICE_VALUE 0
 #define MAX_NICE_VALUE 20
 #define MIN_NICE_VALUE -20
+#define DEADLOCK_DEPTH_CHECK 8
 
 void mlfqs_update_recent_cpu(struct thread *t, void *aux UNUSED);
 void mlfqs_update_priority (struct thread *t, void *aux UNUSED);
@@ -107,7 +108,7 @@ thread_init (void)
   list_init (&all_list);
 
   // OUR CODE HERE
-  load_avg = fix_int(DEFAULT_LOAD_AVG_VALUE);
+  load_avg = fix_int(DEFAULT_LOAD_AVG_VALUE); // initialize load_avg to 0
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -262,7 +263,8 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+  list_insert_ordered(&ready_list, &t->elem, thread_greater_priority, NULL);
+  // list_push_back (&ready_list, &t->elem);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -333,7 +335,8 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_push_back (&ready_list, &cur->elem);
+    list_insert_ordered (&ready_list, &cur->elem, thread_greater_priority, NULL);
+    // list_push_back (&ready_list, &cur->elem);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -386,10 +389,18 @@ donor_priority_less(const struct list_elem *a,
   return first->priority < second->priority;
 }
 
-
+/* Returns true iff the priority of the thread constructed from a
+   is greater than that from b. */
+bool 
+thread_greater_priority(const struct list_elem *a,
+                             const struct list_elem *b, void *aux UNUSED)
+{
+  struct thread *x = list_entry(a, struct thread, elem);
+  struct thread *y = list_entry(b, struct thread, elem);
+  return x -> priority > y -> priority;
+}
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
-
 void
 thread_set_priority (int new_priority) 
 {
@@ -429,6 +440,11 @@ thread_set_nice (int nice)
   ASSERT(thread_mlfqs == true);
 
   enum intr_level prev_status = intr_disable();
+  if (nice > MAX_NICE_VALUE) {
+    nice = MAX_NICE_VALUE;
+  } else if (nice < MIN_NICE_VALUE) {
+    nice = MIN_NICE_VALUE;
+  }
   thread_current() -> nice = nice;
   mlfqs_update_priority(thread_current(), NULL);
   check_max_priority();
@@ -565,14 +581,13 @@ init_thread (struct thread *t, const char *name, int priority)
   /* Initializing fields for thread_mlfqs scheduler. */
   struct thread *parent = running_thread(); // or running_thread, i think the same
   if (parent == initial_thread) {
-    t -> nice = 0;
-    t -> recent_cpu = fix_int(0);
+    t -> nice = DEFAULT_NICE_VALUE;
+    t -> recent_cpu = fix_int(DEFAULT_RECENT_CPU_VALUE);
   } else {
     t -> nice = parent -> nice;
     t -> recent_cpu = parent -> recent_cpu;
   }
 
->>>>>>> fbe704b5e4c11f591511cd22585a33219abe87f8
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);
@@ -603,9 +618,10 @@ next_thread_to_run (void)
     return idle_thread;
   else {
     // OUR CODE BELOW
-    struct list_elem *max_elem = list_max(&ready_list, &priority_less, NULL);
-    list_remove(max_elem);
-    return list_entry(max_elem, struct thread, elem);
+    return list_entry (list_pop_front (&ready_list), struct thread, elem);
+    // struct list_elem *max_elem = list_max(&ready_list, &priority_less, NULL);
+    // list_remove(max_elem);
+    // return list_entry(max_elem, struct thread, elem);
   }
 }
 
@@ -695,7 +711,6 @@ void release_threads_waiting_on_lock(struct lock *lock) {
 
   ASSERT(intr_get_level() == INTR_OFF);
   ASSERT(thread_mlfqs == false);
-
   struct list_elem *e = list_begin(&thread_current() -> donors);
   while (e != list_end(&thread_current() -> donors)) {
     struct thread *t = list_entry(e, struct thread, donor_elem);
@@ -717,7 +732,7 @@ void priority_donation() {
   int depth = 0;
   struct thread *iter_thread = thread_current();
   struct lock *iter_lock = iter_thread -> wanted_lock;
-  while (iter_lock != NULL) {
+  while (iter_lock != NULL && depth < DEADLOCK_DEPTH_CHECK) {
     struct thread *holding_thread = iter_lock -> holder;
     if (holding_thread == NULL) { // no thread holding the iter_lock
       return; // nothing to donate, reached end of priority donation chain
@@ -768,7 +783,7 @@ void mlfqs_update_priority (struct thread *t, void *aux UNUSED) {
 
   if (t != idle_thread) {
     fixed_point_t tmp = fix_unscale(t->recent_cpu, 4);
-    tmp = fix_sub(tmp, fix_scale(fix_int(t->nice), 2));
+    tmp = fix_add(tmp, fix_scale(fix_int(t->nice), 2));
     tmp = fix_sub(fix_int(PRI_MAX), tmp);
     int priority = fix_trunc(tmp);
     if (priority < PRI_MIN) {
@@ -841,8 +856,10 @@ void check_max_priority () {
   if (list_empty(&ready_list)) {
     return;
   }
-  struct thread *t = list_entry(list_max(&ready_list, &priority_less, NULL),
-                                struct thread, elem);
+  // struct thread *t = list_entry(list_max(&ready_list, &priority_less, NULL),
+  //                               struct thread, elem);
+  struct thread *t = list_entry(list_front(&ready_list), struct thread,
+                                elem);
   if (thread_current() -> priority < t -> priority) {
     if (intr_context()) {
       intr_yield_on_return(); // might need a <= on this one..?
