@@ -207,7 +207,7 @@ lock_acquire (struct lock *lock)
 
   struct thread *curr_thread = thread_current();
 
-  if (lock -> holder != NULL) {
+  if (!thread_mlfqs && lock -> holder != NULL) {
     curr_thread -> wanted_lock = lock;
     list_push_back(&lock -> holder -> donors, &curr_thread -> donor_elem);
     priority_donation();
@@ -261,12 +261,14 @@ lock_release (struct lock *lock)
 
   enum intr_level prev_status = intr_disable();
 
-  release_threads_waiting_on_lock(lock);
-  update_priority();
-
+  if (!thread_mlfqs) {
+    release_threads_waiting_on_lock(lock);
+    update_priority();
+    check_max_priority();
+  }
   intr_set_level(prev_status);
 
-  check_max_priority();
+
 
   //intr_set_level(prev_status);
 
