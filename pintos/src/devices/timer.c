@@ -26,7 +26,8 @@ static int64_t ticks;
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
 
-// OUR CODE HERE
+/* Global list of currently sleeping threads in ascending sorted order of
+   wakeup times. */
 static struct list sleeping_threads;
 
 /* Every fourth tick, we recalculate each thread's priority when
@@ -39,7 +40,7 @@ static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
 
-// OUR CODE HERE
+/* Comparator function for the sleeping thread's wakeup times. */
 bool compare_wakeup(const struct list_elem *a,
                     const struct list_elem *b, void *aux);
 
@@ -106,7 +107,7 @@ bool compare_wakeup(const struct list_elem *a,
                     const struct list_elem *b, void *aux UNUSED) {
   struct thread *first = list_entry(a, struct thread, timer_elem);
   struct thread *second = list_entry(b, struct thread, timer_elem);
-  return (first -> wakeup_time) < (second -> wakeup_time);
+  return first->wakeup_time < second->wakeup_time;
 }
 
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
@@ -119,12 +120,13 @@ timer_sleep (int64_t ticks)
   enum intr_level prev_status = intr_disable();
 
   struct thread *curr_thread = thread_current();
-  curr_thread -> wakeup_time = timer_ticks() + ticks;
-  list_insert_ordered(&sleeping_threads, &curr_thread -> timer_elem,
+  curr_thread->wakeup_time = timer_ticks() + ticks;
+  list_insert_ordered(&sleeping_threads, &curr_thread->timer_elem,
                       &compare_wakeup, NULL);
+
   intr_set_level(prev_status);
 
-  sema_down(&curr_thread -> timer_semaphore);
+  sema_down(&curr_thread->timer_semaphore);
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -198,16 +200,21 @@ timer_print_stats (void)
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
-  ASSERT(intr_get_level() == INTR_OFF); // MY CODE HERE
+  /* Lots of work done here below. We want to do things stably as the thread
+     fields are being modified, so disabling interrupts for safety. */
+  enum intr_level prev_status = intr_disable();
+
   ticks++;
   thread_tick();
+  int64_t curr_time = timer_ticks();
   
-  // OUR CODE HERE
   if (thread_mlfqs) {
+    /* We reset load_avg and every thread's recent_cpu every second. */
     if (ticks % TIMER_FREQ == 0) { // 1 second = TIMER_FREQ timer ticks
-      mlfqs_update_load_avg();
+      mlfqs_reset_load_avg();
       mlfqs_reset_recent_cpu();
     }
+    /* We update all thread's priorities every 4 timer ticks. */
     if (ticks % BSD_PRIORITY_TIME_SLICE == 0) { // every 4 timer ticks
       mlfqs_reset_priorities();
     }
@@ -216,14 +223,17 @@ timer_interrupt (struct intr_frame *args UNUSED)
   while (!list_empty(&sleeping_threads)) {
     struct list_elem *e = list_begin(&sleeping_threads);
     struct thread *curr_thread = list_entry(e, struct thread, timer_elem);
-    if (curr_thread -> wakeup_time > timer_ticks()) {
+    if (curr_thread->wakeup_time > curr_time) {
       break;
     } else {
-      sema_up(&curr_thread -> timer_semaphore);
+      sema_up(&curr_thread->timer_semaphore);
       list_pop_front(&sleeping_threads);
     }
   }
-  check_max_priority();
+
+  check_max_priority(); // yields if necessary, can execute with interrupts off
+
+  intr_set_level(prev_status);
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer

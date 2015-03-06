@@ -159,19 +159,24 @@ void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
-// MY CODE HERE
+// OUR CODE HERE
+/* Priority donation functions. */
 void check_max_priority(void);
 void priority_donation(void);
 void release_threads_waiting_on_lock(struct lock *lock);
 void update_priority(void);
+
+/* Comparator functions for threads. */
 bool priority_less(const struct list_elem *a,
                    const struct list_elem *b, void *aux UNUSED);
 bool donor_priority_less(const struct list_elem *a,
                          const struct list_elem *b, void *aux UNUSED);
 bool thread_greater_priority(const struct list_elem *a,
                              const struct list_elem *b, void *aux UNUSED);
+
+/* Advanced scheduler functions. */
 void mlfqs_reset_priorities(void);
 void mlfqs_reset_recent_cpu(void);
-void mlfqs_update_load_avg(void);
+void mlfqs_reset_load_avg(void);
 
 #endif /* threads/thread.h */
