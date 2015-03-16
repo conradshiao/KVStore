@@ -7,6 +7,6 @@
 void
 test_main (void) 
 {
-  char *msg = "I love CS162";
+  char *msg = "I love CS162\n";
   write(1, msg, strlen(msg));
 }
