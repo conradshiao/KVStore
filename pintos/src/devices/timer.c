@@ -201,14 +201,13 @@ timer_interrupt (struct intr_frame *args UNUSED)
   ASSERT(intr_get_level() == INTR_OFF); // MY CODE HERE
   ticks++;
   thread_tick();
-
+  
   // OUR CODE HERE
   if (thread_mlfqs) {
     if (ticks % TIMER_FREQ == 0) { // 1 second = TIMER_FREQ timer ticks
-      enum intr_level old_level = intr_disable ();
+
       mlfqs_update_load_avg();
       mlfqs_reset_recent_cpu();
-      intr_set_level (old_level);
     }
     if (ticks % BSD_PRIORITY_TIME_SLICE == 0) { // every 4 timer ticks
       mlfqs_reset_priorities();
