@@ -3,12 +3,12 @@ use strict;
 use warnings;
 use tests::tests;
 check_expected ([<<'EOF']);
-((null)) begin
+(wait-twice) begin
 (child-simple) run
 child-simple: exit(81)
-((null)) wait(exec()) = 81
-((null)) wait(exec()) = -1
-((null)) end
+(wait-twice) wait(exec()) = 81
+(wait-twice) wait(exec()) = -1
+(wait-twice) end
 wait-twice: exit(0)
 EOF
 pass;
