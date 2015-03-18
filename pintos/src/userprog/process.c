@@ -15,9 +15,11 @@
 #include "threads/init.h"
 #include "threads/interrupt.h"
 #include "threads/palloc.h"
+#include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
+static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
@@ -31,6 +33,7 @@ process_execute (const char *file_name)
   char *fn_copy;
   tid_t tid;
 
+  sema_init (&temporary, 0);
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0);
@@ -88,7 +91,8 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  return -1;
+  sema_down (&temporary);
+  return 0;
 }
 
 /* Free the current process's resources. */
@@ -114,6 +118,7 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+  sema_up (&temporary);
 }
 
 /* Sets up the CPU for running user code in the current
