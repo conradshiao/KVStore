@@ -22,6 +22,9 @@
 static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
+static void setup_cmdline(uint8_t *kpage, const char *cmdline, void **esp);
+static void *push_on_kstack(uint8_t *kpage, const void *buf, size_t num_bytes); 
+
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -40,6 +43,11 @@ process_execute (const char *file_name)
   if (fn_copy == NULL)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
+  // strlcpy(fn_copy, file_name, something that's not a whole pagesize? the size of filename? + 1? idk
+  
+ // OUR CODE HERE: in thread.h, name array is allocated as array of length 16
+ char* save_ptr;
+ file_name = strtok_r((char *) file_name, " ", &save_ptr); 
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
@@ -56,7 +64,7 @@ start_process (void *file_name_)
   char *file_name = file_name_;
   struct intr_frame if_;
   bool success;
-
+ 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
@@ -200,7 +208,7 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp);
+static bool setup_stack (void **esp, const char *file_name);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
@@ -211,7 +219,7 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
    and its initial stack pointer into *ESP.
    Returns true if successful, false otherwise. */
 bool
-load (const char *file_name, void (**eip) (void), void **esp) 
+load (const char *cmdline, void (**eip) (void), void **esp) 
 {
   struct thread *t = thread_current ();
   struct Elf32_Ehdr ehdr;
@@ -219,8 +227,15 @@ load (const char *file_name, void (**eip) (void), void **esp)
   off_t file_ofs;
   bool success = false;
   int i;
+  // OUR CODE HERE: idk how big a file_name is allowed to be. so ima make it a pgsize for now.. lulz
+  char file_name[PGSIZE];
+  strlcpy(file_name, cmdline, PGSIZE);
+  char *token, *save_ptr;
+  if (token = strtok_r(file_name, " ", &save_ptr) == NULL) {
+    *token = '\0';
+  }
 
-  /* Allocate and activate page directory. */
+/* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
   if (t->pagedir == NULL) 
     goto done;
@@ -307,7 +322,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp))
+  if (!setup_stack (esp, cmdline))
     goto done;
 
   /* Start address. */
@@ -432,7 +447,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
-setup_stack (void **esp) 
+setup_stack (void **esp, const char *cmdline) 
 {
   uint8_t *kpage;
   bool success = false;
@@ -440,13 +455,39 @@ setup_stack (void **esp)
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
   if (kpage != NULL) 
     {
+      // OUR CODE HERE:
+      // okay i lied. not code. but a note
+      // might need to save this (uint8_t *) PHYS_BASE - PGSIZE thing. this is where user VM starts. like kpage but with users.
+      // might need to be passed into either setup_cmdline or push on kstack or both? idk
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
-        *esp = PHYS_BASE;
-      else
+        setup_cmdline(kpage, upage, cmdline, esp); //*esp = PHYS_BASE;
+      else {
         palloc_free_page (kpage);
+        //return success; // success is false here
+      } 
     }
   return success;
+}
+
+/* Processes and sets up command line arguments in KPAGE. CMDLINE is still
+   separated by spaces and needs to be parsed. This method should set
+   *ESP to the initial stack pointer to run this overall process 
+*/
+static void
+setup_cmdline(uint8_t *kpage, const char *cmdline, void **esp)
+{
+  // OUR CODE HERE
+}
+
+/* Push NUM_BYTES bytes into buffer BUF onto stack in KPAGE.
+ * Bytes are ushed in a word-aligned manner.
+ *
+ * Helper method called by process_cmdline used to push arguments onto stack.
+ * Returns a pointer to the pushed object if successful, else returns
+ * a null pointer on failure. */
+static void *push_on_kstack(uint8_t *kpage, const void *buf, size_t num_bytes) {
+  // OUR CODE HERE
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel
