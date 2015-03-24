@@ -19,11 +19,13 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
+#define MAX_ARGS 4096
+
 static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 static void setup_cmdline(uint8_t *kpage, const char *cmdline, void **esp);
-static void *push_on_kstack(uint8_t *kpage, const void *buf, size_t num_bytes); 
+//static void *push_on_kstack(uint8_t *kpage, const void *buf, size_t num_bytes); 
 
 
 /* Starts a new thread running a user program loaded from
@@ -229,6 +231,7 @@ load (const char *cmdline, void (**eip) (void), void **esp)
   // OUR CODE HERE: idk how big a file_name is allowed to be. so ima make it a pgsize for now.. lulz
   // this below is for the filesys_open code below to open the executable file
   char cmdline_cpy[PGSIZE];
+  char *save_ptr;
   strlcpy(cmdline_cpy, cmdline, PGSIZE);
   char *file_name = strtok_r(cmdline_cpy, " ", &save_ptr);
   /*
@@ -464,7 +467,7 @@ setup_stack (void **esp, const char *cmdline)
       user_page = ((uint8_t *) PHYS_BASE) - PGSIZE;
       success = install_page (user_page, kpage, true);
       if (success)
-        setup_cmdline(kpage, user_page, cmdline, esp); //*esp = PHYS_BASE;
+        setup_cmdline(kpage, cmdline, esp); //*esp = PHYS_BASE;
       else {
         palloc_free_page (kpage);
         //return success; // success is false here
@@ -478,10 +481,10 @@ setup_stack (void **esp, const char *cmdline)
    *ESP to the initial stack pointer to run this overall process 
 */
 static void
-setup_cmdline(uint8_t *kpage, uint8_t *user_page, const char *cmdline, void **esp)
+setup_cmdline(uint8_t *kpage, const char *cmdline, void **esp)
 {
   // OUR CODE HERE
-  *esp = user_page; // or should it be PHYS_BASE???? or conceptually PHYS_BASE -1?
+ // *esp = user_page; // or should it be PHYS_BASE???? or conceptually PHYS_BASE -1?
   *esp = PHYS_BASE;
   char *token, *save_ptr;
   char* argv[MAX_ARGS];
@@ -517,10 +520,19 @@ setup_cmdline(uint8_t *kpage, uint8_t *user_page, const char *cmdline, void **es
   memset(*esp, 0, char_ptr_size);
   for (i = argc - 1; i >= 0; i--) {
     *esp -= char_ptr_size;
-    *(char *)*esp = argv[i];
+    memcpy(*esp, &argv[i], char_ptr_size);
+    //*(char *)*esp = argv[i];
   }
   /* Gotta push argv and argc here below, along with other stuff... */
-  CONTINUE HERE YO ADKFK
+  char *temp_ptr = *esp;
+  *esp -= sizeof(char **);
+  memcpy(*esp, &temp_ptr, sizeof(char **));
+  // pushing argc here now
+  *esp -= sizeof(int);
+  memcpy(*esp, &argc, sizeof(int));
+  // pushing dummy return address here
+  *esp -= sizeof(void *);
+  memcpy(*esp, &argv, sizeof(void *));  
 }
 
 /* Push NUM_BYTES bytes into buffer BUF onto stack in KPAGE.
@@ -529,10 +541,10 @@ setup_cmdline(uint8_t *kpage, uint8_t *user_page, const char *cmdline, void **es
  * Helper method called by process_cmdline used to push arguments onto stack.
  * Returns a pointer to the pushed object if successful, else returns
  * a null pointer on failure. */
-static void
-*push_on_kstack(uint8_t *kpage, uint8_t *user_page, const void *buf, size_t num_bytes) {
+//static void
+//*push_on_kstack(uint8_t *kpage, uint8_t *user_page, const void *buf, size_t num_bytes) {
   // OUR CODE HERE
-}
+//}
 
 /* Adds a mapping from user virtual address UPAGE to kernel
    virtual address KPAGE to the page table.
