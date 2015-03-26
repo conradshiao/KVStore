@@ -19,6 +19,10 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
+// OUR CODE HERE
+#define MAX_ARGS 8192
+
+static bool setup_stack(void **esp, const char *file_name);
 static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -32,6 +36,10 @@ process_execute (const char *file_name)
 {
   char *fn_copy;
   tid_t tid;
+
+  // OUR CODE HERE
+  void **esp;
+  setup_stack(esp, file_name);
 
   sema_init (&temporary, 0);
   /* Make a copy of FILE_NAME.
@@ -200,7 +208,7 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp);
+static bool setup_stack (void **esp, const char *file_name);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
@@ -307,7 +315,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp))
+  if (!setup_stack (esp, NULL))
     goto done;
 
   /* Start address. */
@@ -432,7 +440,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
-setup_stack (void **esp) 
+setup_stack (void **esp, const char *file_name) 
 {
   uint8_t *kpage;
   bool success = false;
@@ -442,10 +450,35 @@ setup_stack (void **esp)
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
-        *esp = PHYS_BASE;
+        {
+          *esp = PHYS_BASE - 1;
+          if (file_name == NULL) {
+            return success;
+          }
+          char *line;
+          char *token, *save_ptr;
+          char *args[MAX_ARGS];
+          int num_args = 0;
+          strlcpy(line, file_name, strnlen(file_name, 0));
+          for (token = strtok_r(line, " ", &save_ptr); token != NULL;
+              token = strtok_r(NULL, " ", &save_ptr))
+            {
+              args[num_args] = token;
+              num_args++;
+            }
+          while (num_args > 1)    // don't wan't file name (arg[0])
+            {
+              num_args--;
+              **esp = args[num_args];
+              *esp = (uint8_t *) (esp - 1);
+            }
+        }
       else
-        palloc_free_page (kpage);
+        {
+          palloc_free_page (kpage);
+        }
     }
+
   return success;
 }
 
