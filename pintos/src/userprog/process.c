@@ -19,16 +19,12 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
-// OUR CODE HERE
 #define MAX_ARGS 4096
-
-static bool setup_stack(void **esp, const char *file_name);
 
 static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
-static void setup_cmdline(uint8_t *kpage, const char *cmdline, void **esp);
-//static void *push_on_kstack(uint8_t *kpage, const void *buf, size_t num_bytes); 
+static void parse_and_load_cmdline(char *cmdline, void **esp);
 
 
 /* Starts a new thread running a user program loaded from
@@ -41,10 +37,6 @@ process_execute (const char *file_name)
   char *fn_copy;
   tid_t tid;
 
-  // OUR CODE HERE
-  void **esp;
-  setup_stack(esp, file_name);
-
   sema_init (&temporary, 0);
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
@@ -52,13 +44,12 @@ process_execute (const char *file_name)
   if (fn_copy == NULL)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
-  // strlcpy(fn_copy, file_name, something that's not a whole pagesize? the size of filename? + 1? idk
   
  // OUR CODE HERE: in thread.h, name array is allocated as array of length 16, so i'm truncating it right now to only the first arg
- char* save_ptr;
- file_name = strtok_r((char *) file_name, " ", &save_ptr);
+  char* save_ptr;
+  char* thread_name = strtok_r((char *) file_name, " ", &save_ptr);
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy); // fn_copy is the argument passed into start_process() 
+  tid = thread_create (thread_name, PRI_DEFAULT, start_process, fn_copy); // fn_copy is the argument passed into start_process() 
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   return tid;
@@ -72,7 +63,6 @@ start_process (void *file_name_)
   char *file_name = file_name_;
   struct intr_frame if_;
   bool success;
- 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
@@ -216,7 +206,7 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp, const char *file_name);
+static bool setup_stack (void **esp, char *cmdline);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
@@ -230,25 +220,22 @@ bool
 load (const char *cmdline, void (**eip) (void), void **esp) 
 {
   struct thread *t = thread_current ();
+  //printf("after thread_current in load cmdlind is: %s\n", cmdline);
   struct Elf32_Ehdr ehdr;
   struct file *file = NULL;
   off_t file_ofs;
   bool success = false;
   int i;
+
   // OUR CODE HERE: idk how big a file_name is allowed to be. so ima make it a pgsize for now.. lulz
   // this below is for the filesys_open code below to open the executable file
-  char cmdline_cpy[PGSIZE];
-  char *save_ptr;
-  strlcpy(cmdline_cpy, cmdline, PGSIZE);
-  char *file_name = strtok_r(cmdline_cpy, " ", &save_ptr);
-  /*
-  char file_name[PGSIZE];
-  strlcpy(file_name, cmdline, PGSIZE);
-  char *token, *save_ptr;
-  if (token = strtok_r(file_name, " ", &save_ptr) == NULL) {
-    *token = '\0';
+  char *cmdline_copy = palloc_get_page(0);
+  if (cmdline_copy == NULL) {
+    return false; // if unsuccessful, shouldn't hit this much. just a security protocol
   }
-  */
+  strlcpy(cmdline_copy, cmdline, PGSIZE);
+  char *save_ptr;
+  char *file_name = strtok_r(cmdline_copy, " ", &save_ptr);
 
 /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
@@ -337,8 +324,9 @@ load (const char *cmdline, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp, cmdline))
+  if (!setup_stack (esp, (char *) cmdline))
     goto done;
+  // hex_dump(0, *esp, 200, true);
 
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;
@@ -348,6 +336,7 @@ load (const char *cmdline, void (**eip) (void), void **esp)
  done:
   /* We arrive here whether the load is successful or not. */
   file_close (file);
+  palloc_free_page(cmdline_copy);
   return success;
 }
 
@@ -462,25 +451,24 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
-setup_stack (void **esp, const char *cmdline) 
+setup_stack (void **esp, char *cmdline) 
 {
-  uint8_t *kpage, *user_page;
+  uint8_t *kpage;//, *user_page;
   bool success = false;
 
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
   if (kpage != NULL) 
     {
       // OUR CODE HERE:
-      user_page = ((uint8_t *) PHYS_BASE) - PGSIZE;
-      success = install_page (user_page, kpage, true);
+      /* user_page = ((uint8_t *) PHYS_BASE) - PGSIZE;
+      success = install_page (user_page, kpage, true); */
+      success = install_page(((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
-        setup_cmdline(kpage, cmdline, esp); //*esp = PHYS_BASE;
+        parse_and_load_cmdline(cmdline, esp); //*esp = PHYS_BASE;
       else {
         palloc_free_page (kpage);
-        //return success; // success is false here
       } 
     }
-
   return success;
 }
 
@@ -489,70 +477,69 @@ setup_stack (void **esp, const char *cmdline)
    *ESP to the initial stack pointer to run this overall process 
 */
 static void
-setup_cmdline(uint8_t *kpage, const char *cmdline, void **esp)
+parse_and_load_cmdline(char *cmdline, void **esp)
 {
   // OUR CODE HERE
- // *esp = user_page; // or should it be PHYS_BASE???? or conceptually PHYS_BASE -1?
   *esp = PHYS_BASE;
   char *token, *save_ptr;
   char* argv[MAX_ARGS];
-  int argv_lengths[MAX_ARGS];
   int argc = 0;
-  for (token = strtok_r((char *) cmdline, " ", &save_ptr); token != NULL;
+  int i;
+  uint32_t addresses[MAX_ARGS];
+
+  for (token = strtok_r(cmdline, " ", &save_ptr); token != NULL;
        token = strtok_r(NULL, " ", &save_ptr))
     {
       argv[argc] = token;
-      argv_lengths[argc] = strlen(token);
       argc++;
+      // argv[argc++] = token;
     }
-    //i think i gotta memcpy...
-  // when debugging, check here what argv looks like? cuz idk what strtok_r rlly does... it's shady
-  int i;
+
   for (i = argc - 1; i >= 0; i--) {
-    int curr_len = argv_lengths[i];
-    *esp -= (curr_len + 1);
-    memcpy(*esp, argv[i], curr_len);
-    memset(*esp + curr_len, '\0', 1);
+    int arg_len = strlen(argv[i]);
+    *esp -= (arg_len + 1);
+    addresses[i] = (uint32_t) *esp;
+    memcpy(*esp, argv[i], arg_len + 1);
+    //memcpy(*esp, argv[i], arg_len);
+    //memset(*esp + arg_len, '\0', 1); // need to add on null terminator for each char
   }
   
   /* Need to word-align. */
-  if (((int) *esp) % 4 != 0) {
+  if (((uint32_t) *esp) % 4 != 0) {
+    // filling in with zero's
     int word_align = ((uint32_t) *esp) % 4;
     *esp -= word_align;
-    memset(esp, 0, word_align);
+    memset(*esp, 0, word_align);
   }
 
   /* argv[argc] by project specs is set to 0 / NULL */
-  size_t char_ptr_size = sizeof(char *);
-  *esp -= char_ptr_size;
-  memset(*esp, 0, char_ptr_size);
+  *esp -= sizeof(char *);
+  memset(*esp, 0, sizeof(char *));
   for (i = argc - 1; i >= 0; i--) {
-    *esp -= char_ptr_size;
-    memcpy(*esp, &argv[i], char_ptr_size);
+    *esp -= sizeof(char *);
+    // **esp = addresses[i]; // or it's * (void **) esp;
+    memcpy(*esp, &addresses[i], sizeof(char *));
+    // memcpy(*esp, &argv[i], sizeof(char *));
+    /* *esp -= 4;
+    *(char *) *esp = argv[i]; */
     //*(char *)*esp = argv[i];
   }
   /* Gotta push argv and argc here below, along with other stuff... */
-  char *temp_ptr = *esp;
+  // char *temp_ptr = *esp; maybe it's like this says phil
+  char **temp_ptr = *esp;
   *esp -= sizeof(char **);
   memcpy(*esp, &temp_ptr, sizeof(char **));
+  /* *esp -= 4;
+  *(char **) *esp = temp_ptr; */
+
   // pushing argc here now
   *esp -= sizeof(int);
   memcpy(*esp, &argc, sizeof(int));
   // pushing dummy return address here
   *esp -= sizeof(void *);
-  memcpy(*esp, &argv, sizeof(void *));  
+  // memcpy(*esp, &argv, sizeof(void *));  
+  memset(*esp, 0, sizeof(void *));
 }
-
-/* Push NUM_BYTES bytes into buffer BUF onto stack in KPAGE.
- * Bytes are ushed in a word-aligned manner.
- *
- * Helper method called by process_cmdline used to push arguments onto stack.
- * Returns a pointer to the pushed object if successful, else returns
- * a null pointer on failure. */
-//static void
-//*push_on_kstack(uint8_t *kpage, uint8_t *user_page, const void *buf, size_t num_bytes) {
-  // OUR CODE HERE
-//}
 
 /* Adds a mapping from user virtual address UPAGE to kernel
    virtual address KPAGE to the page table.
