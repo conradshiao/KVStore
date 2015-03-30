@@ -116,12 +116,13 @@ sema_up (struct semaphore *sema)
   old_level = intr_disable ();
   sema -> value++;
   if (!list_empty (&sema->waiters)) {
+    // OUR CODE HERE
     struct thread *max_t;
     max_t = list_entry(list_max(&sema->waiters, &priority_less, NULL),
                        struct thread, elem);
-    list_remove(&max_t -> elem);
+    list_remove(&max_t->elem);
     thread_unblock(max_t);
-    check_max_priority();
+    check_max_priority(); // yields if necessary
   }
   intr_set_level (old_level);
 }
@@ -206,20 +207,23 @@ lock_acquire (struct lock *lock)
   enum intr_level prev_status = intr_disable();
 
   struct thread *curr_thread = thread_current();
-
-  if (!thread_mlfqs && lock -> holder != NULL) {
-    curr_thread -> wanted_lock = lock;
-    list_push_back(&lock -> holder -> donors, &curr_thread -> donor_elem);
+  struct thread *holding_thread = lock->holder;
+  if (!thread_mlfqs && holding_thread != NULL) {
+    curr_thread->wanted_lock = lock;
+    list_push_back(&holding_thread->donors, &curr_thread->donor_elem);
     priority_donation();
   }
 
   intr_set_level(prev_status);
 
-  sema_down(&lock -> semaphore); // atomic operation, interrupt status doesn't matter atm i think?
+  // This function might sleep, so need to temporarily reset prev_status
+  sema_down(&lock->semaphore);
 
   prev_status = intr_disable();
-  curr_thread -> wanted_lock = NULL;
-  lock -> holder = curr_thread;
+
+  // curr_thread holds lock after we wake up from potential sleep in sema_down
+  curr_thread->wanted_lock = NULL;
+  lock->holder = curr_thread;
 
   intr_set_level(prev_status);
 }
@@ -256,22 +260,15 @@ lock_release (struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
 
   // OUR CODE HERE
-  lock -> holder = NULL;
-  sema_up(&lock -> semaphore);
-
   enum intr_level prev_status = intr_disable();
-
+  lock->holder = NULL;
   if (!thread_mlfqs) {
     release_threads_waiting_on_lock(lock);
     update_priority();
-    check_max_priority();
   }
+  // sema_up yields if necessary, and can be called with interrupts disabled
+  sema_up(&lock->semaphore);
   intr_set_level(prev_status);
-
-
-
-  //intr_set_level(prev_status);
-
 }
 
 /* Returns true if the current thread holds LOCK, false
@@ -355,33 +352,45 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
   ASSERT (!intr_context ());
   ASSERT (lock_held_by_current_thread (lock));
 
-  if (list_empty(&cond -> waiters)) {
+  if (list_empty(&cond->waiters)) {
     return;
   }
+  /* doing calculations with lists: so we want to turn off interrupts to
+     avoid race conditions and allow us time to calculate */
   enum intr_level prev_status = intr_disable();
   // initializing variables: released, max_priority, and removed_elem
-  struct list_elem *removed_elem = list_front(&cond -> waiters);
-  struct semaphore *released = &list_entry(removed_elem, struct semaphore_elem, elem)->semaphore;
-  struct thread *t = list_entry(list_max(&released->waiters, &priority_less, NULL),
-                                struct thread, elem);
-  int max_priority = t -> priority;
+  struct list_elem *removed_elem;
+  struct semaphore *released;
+  struct thread *t;
+
+  removed_elem = list_front(&cond->waiters);
+  released = &list_entry(removed_elem, struct semaphore_elem, elem)->semaphore;
+  t = list_entry(list_max(&released->waiters, &priority_less, NULL),
+                 struct thread, elem);
+
+  int max_priority = t->priority;
+
   struct list_elem *e;
-  for (e = list_begin (&cond -> waiters); e != list_end (&cond -> waiters);
+  struct semaphore *curr;
+  /* Finding the semaphore that contains the highest priority thread. */
+  for (e = list_begin (&cond->waiters); e != list_end (&cond->waiters);
        e = list_next (e))
     {
-      struct semaphore* curr = &list_entry(e, struct semaphore_elem, elem)->semaphore;
-      struct thread *t = list_entry(list_max(&curr -> waiters, &priority_less, NULL),
-                         struct thread, elem);
-      if (t -> priority > max_priority) {
-        max_priority = t -> priority;
+      curr = &list_entry(e, struct semaphore_elem, elem)->semaphore;
+      t = list_entry(list_max(&curr->waiters, &priority_less, NULL),
+                     struct thread, elem);
+      if (t->priority > max_priority) {
+        max_priority = t->priority;
         released = curr;
         removed_elem = e;
       }
     }
-  list_remove(removed_elem);
-  intr_set_level(prev_status);
 
+  list_remove(removed_elem);
+  /* sema_up the semaphore we found to unblock that highest priority thread. */
   sema_up(released);
+
+  intr_set_level(prev_status);
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by
