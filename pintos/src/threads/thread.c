@@ -577,6 +577,7 @@ init_thread (struct thread *t, const char *name, int priority)
 
   // OUR CODE HERE
   sema_init(&t->timer_semaphore, 0);
+  list_init(&t->children);
 
   /* Initializing priority donation fields. */
   t->orig_priority = priority;

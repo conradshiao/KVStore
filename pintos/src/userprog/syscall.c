@@ -5,9 +5,6 @@
 #include "threads/thread.h"
 
 static void syscall_handler (struct intr_frame *);
-static void syscall_null (struct intr_frame *f, uint32_t *argv);
-static void syscall_write (struct intr_frame *f, uint32_t *argv);
-static void syscall_exit (struct intr_frame *f, uint32_t *argv);
 
 void
 syscall_init (void) 
@@ -44,7 +41,8 @@ syscall_handler (struct intr_frame *f)
       int fd = args[1];
       const void *buffer = args[2];
       unsigned size = args[3];
-      putbuf(buffer, size);
+      if (fd == STDOUT_FILENO)
+        putbuf(buffer, size);
       f->eax = size;
       break;
     }
@@ -52,9 +50,13 @@ syscall_handler (struct intr_frame *f)
       break;
     }
     case SYS_WAIT: {
+      // tid_t tid = args[1];
+      // f->eax = process_wait(tid);
       break;
     }
-    case SYS_EXEC:   {
+    case SYS_EXEC: {
+      const char *file_name = args[1];
+      f->eax = process_execute(file_name);
       break;
     } 
   }

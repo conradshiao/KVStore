@@ -18,6 +18,7 @@
 #include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "threads/malloc.h"
 
 // OUR CODE HERE
 #define MAX_ARGS 128
@@ -52,10 +53,23 @@ process_execute (const char *file_name)
   char* save_ptr;
   char* thread_name = strtok_r((char *) file_name, " ", &save_ptr);
 
+  // struct exec_status *child = malloc(sizeof(struct exec_status));
+  // sema_init(&child->loaded, 0);
+  // sema_init(&child->dead, 0);
+  // lock_init(&child->lock);
+  // list_push_back(&thread_current()->children, &child->elem);
+
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (thread_name, PRI_DEFAULT, start_process, fn_copy);
+  // tid = thread_create (thread_name, PRI_DEFAULT, start_process, fn_copy, child);
+  // sema_down(&child->loaded);
+  sema_down(&temporary);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
+  // if (!child->load_success) {
+  //   free(child);
+  //   return -1;
+  // }
   return tid;
 }
 
@@ -63,6 +77,7 @@ process_execute (const char *file_name)
    running. */
 static void
 start_process (void *file_name_)
+// start_process (void *file_name_, struct exec_status *exec_status)
 {
   char *file_name = file_name_;
   struct intr_frame if_;
@@ -74,6 +89,11 @@ start_process (void *file_name_)
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
 
+  // OUR CODE HERE
+  // thread_current()->exec_status = exec_status;
+  // exec_status->load_success = success;
+  // sema_up(&exec_status->loaded); // signal process_execute()
+  sema_up(&temporary);
   /* If load failed, quit. */
   palloc_free_page (file_name);
   if (!success) 
@@ -103,6 +123,33 @@ process_wait (tid_t child_tid UNUSED)
 {
   sema_down (&temporary);
   return 0;
+
+  // OUR CODE HERE
+  // int exit_code;
+  // struct exec_status *child;
+  // // find child process tid that matches child_tid
+  // struct list_elem *e = list_begin(&thread_current()->children);
+  // while (e != list_end(&thread_current()->children)) {
+  //   child = list_entry(e, struct exec_status, elem);
+  //   if (child->tid == child_tid) {
+  //     // Parent calls wait after child exits
+  //     // if (child->exit_code) { // README how do you check if child has exited?
+  //     if (child->dead.value == 1) {
+  //       free(child);
+  //       list_remove(e);
+  //       return child->exit_code;
+  //     }
+  //     // Parent calls wait before child exits
+  //     sema_down(&child->dead);
+  //     exit_code = child->exit_code;
+  //     free(child);
+  //     list_remove(e);
+  //     return exit_code;
+  //   }
+  //   e = list_next(e);
+  // }
+  // return -1;
+
 }
 
 /* Free the current process's resources. */
@@ -129,6 +176,16 @@ process_exit (void)
       pagedir_destroy (pd);
     }
   sema_up (&temporary);
+
+  // OUR CODE HERE
+  // sema_up (&cur->exec_status->dead);
+  // // Free children
+  // struct list_elem *e = list_begin(&thread_current()->children);
+  // while (!list_empty(&cur->children)) {
+  //   struct exec_status *child = list_entry(e, struct exec_status, elem);
+  //   free(child);
+  //   e = list_remove(e);
+  // }
 }
 
 /* Sets up the CPU for running user code in the current
