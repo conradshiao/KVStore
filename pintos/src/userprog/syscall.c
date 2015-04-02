@@ -17,7 +17,8 @@ int cmd_write (struct intr_frame *f, uint32_t *argv) {
   int fd = argv[0];
   const void *buffer = argv[1];
   unsigned size = argv[2];
-  printf("%s", buffer);
+  //printf("%s", buffer);
+  putbuf(argv[1], argv[2]);
   return size;
 }
 
