@@ -23,57 +23,39 @@ syscall_handler (struct intr_frame *f)
   switch (args[0]) {
     
     case SYS_EXIT: {
-      syscall_exit(f, &args[1]);
+      int status = args[1];
+      struct thread *cur = thread_current();
+      printf ("%s: exit(%d)\n", cur -> name, status);
+      // if (cur->wait_status->ref_cnt < 2) {
+      //   cur->wait_status->exit_code = status;
+      // }
+      f->eax = status;
+      thread_exit();
       break;
     }
 
     case SYS_NULL: {
-      syscall_null(f, &args[1]);
+      int i = args[1];
+      f->eax = i + 1;
       break;
     }
 
     case SYS_WRITE: {
-      syscall_write(f, &args[1]);
+      int fd = args[1];
+      const void *buffer = args[2];
+      unsigned size = args[3];
+      putbuf(buffer, size);
+      f->eax = size;
       break;
     }
-    /*
-    case: SYS_HALT {
-
+    case SYS_HALT: {
+      break;
     }
-
-    case: SYS_WAIT {
-
+    case SYS_WAIT: {
+      break;
     }
-
-    case: SYS_CREATE {
-
-    } */
+    case SYS_EXEC:   {
+      break;
+    } 
   }
 }
-
-/* Syscall handler when syscall exit is invoked.
- *
- * First sets the eax register of the intr_frame and then thread exits. */
-static void syscall_exit (struct intr_frame *f, uint32_t *argv) {
-  int status = argv[0];
-  printf("%s: exit(%d)\n", thread_current()->name, status);
-  f->eax = status;
-  thread_exit();
-}
-
-/* Syscall handler when syscall null is invoked. Dummy syscall that
-   typicall is implemented in most operating systems, this is just a warm
-   up for our pintos project. */
-static void syscall_null (struct intr_frame *f, uint32_t *argv) {
-  f->eax = argv[0] + 1;
-}
-
-/* Syscall handler when syscall write is invoked. */
-static void syscall_write (struct intr_frame *f, uint32_t *argv) {
-  // int fd = argv[0];
-  const void *buffer = (const void *) argv[1];
-  unsigned size = argv[2];
-  putbuf(buffer, size);
-  f->eax = size;
-}
-
