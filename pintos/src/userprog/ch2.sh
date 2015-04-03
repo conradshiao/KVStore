@@ -1,3 +1,3 @@
 make clean
-./prepare ch1
+./prepare ch2
 make check
