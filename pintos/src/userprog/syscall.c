@@ -23,8 +23,8 @@ syscall_handler (struct intr_frame *f)
       int status = args[1];
       struct thread *cur = thread_current();
       printf ("%s: exit(%d)\n", cur -> name, status);
-      // if (cur->wait_status->ref_cnt < 2) {
-      //   cur->wait_status->exit_code = status;
+      // if (cur->wait_status->ref_cnt ) {
+      cur->wait_status->exit_code = status;
       // }
       f->eax = status;
       thread_exit();

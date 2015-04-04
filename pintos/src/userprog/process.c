@@ -53,17 +53,17 @@ process_execute (const char *file_name)
   char* save_ptr;
   char* thread_name = strtok_r((char *) file_name, " ", &save_ptr);
 
-  // struct exec_status *child = malloc(sizeof(struct exec_status));
-  // sema_init(&child->loaded, 0);
-  // sema_init(&child->dead, 0);
-  // lock_init(&child->lock);
-  // list_push_back(&thread_current()->children, &child->elem);
+  struct exec_status *child = malloc(sizeof(struct exec_status));
+  sema_init(&child->loaded, 0);
+  sema_init(&child->dead, 0);
+  lock_init(&child->lock);
+  list_push_back(&thread_current()->children, &child->elem);
 
   /* Create a new thread to execute FILE_NAME. */
+  // tid = thread_create (thread_name, PRI_DEFAULT, start_process, child);
   tid = thread_create (thread_name, PRI_DEFAULT, start_process, fn_copy);
-  // tid = thread_create (thread_name, PRI_DEFAULT, start_process, fn_copy, child);
-  // sema_down(&child->loaded);
-  sema_down(&temporary);
+  sema_down(&child->loaded);
+  // sema_down(&temporary);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   // if (!child->load_success) {
@@ -76,10 +76,10 @@ process_execute (const char *file_name)
 /* A thread function that loads a user process and starts it
    running. */
 static void
+// start_process (void *exec_status)
 start_process (void *file_name_)
-// start_process (void *file_name_, struct exec_status *exec_status)
 {
-  char *file_name = file_name_;
+  char *file_name = exec_status->fn;
   struct intr_frame if_;
   bool success;
   /* Initialize interrupt frame and load executable. */
@@ -90,10 +90,10 @@ start_process (void *file_name_)
   success = load (file_name, &if_.eip, &if_.esp);
 
   // OUR CODE HERE
-  // thread_current()->exec_status = exec_status;
+  thread_current()->exec_status = exec_status;
   // exec_status->load_success = success;
-  // sema_up(&exec_status->loaded); // signal process_execute()
-  sema_up(&temporary);
+  sema_up(&exec_status->loaded); // signal process_execute()
+  // sema_up(&temporary);
   /* If load failed, quit. */
   palloc_free_page (file_name);
   if (!success) 
@@ -119,37 +119,33 @@ start_process (void *file_name_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 {
-  sema_down (&temporary);
-  return 0;
+  // sema_down (&temporary);
+  // return 0;
 
   // OUR CODE HERE
-  // int exit_code;
-  // struct exec_status *child;
-  // // find child process tid that matches child_tid
-  // struct list_elem *e = list_begin(&thread_current()->children);
-  // while (e != list_end(&thread_current()->children)) {
-  //   child = list_entry(e, struct exec_status, elem);
-  //   if (child->tid == child_tid) {
-  //     // Parent calls wait after child exits
-  //     // if (child->exit_code) { // README how do you check if child has exited?
-  //     if (child->dead.value == 1) {
-  //       free(child);
-  //       list_remove(e);
-  //       return child->exit_code;
-  //     }
-  //     // Parent calls wait before child exits
-  //     sema_down(&child->dead);
-  //     exit_code = child->exit_code;
-  //     free(child);
-  //     list_remove(e);
-  //     return exit_code;
-  //   }
-  //   e = list_next(e);
-  // }
-  // return -1;
+  int exit_code;
+  struct exec_status *child;
+  // find child process tid that matches child_tid
+  struct list_elem *e = list_begin(&thread_current()->children);
+  while (e != list_end(&thread_current()->children)) {
+    child = list_entry(e, struct exec_status, elem);
+    if (child->tid == child_tid) {
+      
+      // Parent calls wait before child exits
+      if (child->ref_cnt == 2) {
+        sema_down(&child->dead);
+      }
 
+      exit_code = child->exit_code;
+      list_remove(e);
+      free(child);
+      return exit_code;
+    }
+    e = list_next(e);
+  }
+  return -1;
 }
 
 /* Free the current process's resources. */
@@ -180,11 +176,15 @@ process_exit (void)
   // OUR CODE HERE
   // sema_up (&cur->exec_status->dead);
   // // Free children
-  // struct list_elem *e = list_begin(&thread_current()->children);
+  // struct list_elem *e = list_begin(&cur->children);
   // while (!list_empty(&cur->children)) {
   //   struct exec_status *child = list_entry(e, struct exec_status, elem);
-  //   free(child);
+  //   lock_acquire(&child->lock);
+  //   (child->ref_cnt)--;
+  //   lock_release(&child->lock);
   //   e = list_remove(e);
+  //   if (child->ref_cnt == 0)
+  //     free(child);
   // }
 }
 

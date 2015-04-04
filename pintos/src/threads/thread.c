@@ -593,6 +593,8 @@ init_thread (struct thread *t, const char *name, int priority)
   } else {
     t->nice = parent->nice;
     t->recent_cpu = parent->recent_cpu;
+    t->exec_status = list_entry(list_end(&parent->children), struct exec_status, elem); // list_back
+
   }
 
   old_level = intr_disable ();
