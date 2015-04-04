@@ -19,11 +19,14 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
-#define MAX_ARGS 4096
+// OUR CODE HERE
+#define MAX_ARGS 128
 
 static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
+
+//OUR CODE HERE
 static void parse_and_load_cmdline(char *cmdline, void **esp);
 
 
@@ -45,11 +48,12 @@ process_execute (const char *file_name)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
   
- // OUR CODE HERE: in thread.h, name array is allocated as array of length 16, so i'm truncating it right now to only the first arg
+  // OUR CODE HERE: thread.name is now name of the file
   char* save_ptr;
   char* thread_name = strtok_r((char *) file_name, " ", &save_ptr);
+
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (thread_name, PRI_DEFAULT, start_process, fn_copy); // fn_copy is the argument passed into start_process() 
+  tid = thread_create (thread_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   return tid;
@@ -220,18 +224,16 @@ bool
 load (const char *cmdline, void (**eip) (void), void **esp) 
 {
   struct thread *t = thread_current ();
-  //printf("after thread_current in load cmdlind is: %s\n", cmdline);
   struct Elf32_Ehdr ehdr;
   struct file *file = NULL;
   off_t file_ofs;
   bool success = false;
   int i;
 
-  // OUR CODE HERE: idk how big a file_name is allowed to be. so ima make it a pgsize for now.. lulz
-  // this below is for the filesys_open code below to open the executable file
-  char *cmdline_copy = palloc_get_page(0);
+  // OUR CODE HERE
+  char *cmdline_copy = palloc_get_page(0); // used to get file_name
   if (cmdline_copy == NULL) {
-    return false; // if unsuccessful, shouldn't hit this much. just a security protocol
+    return false;
   }
   strlcpy(cmdline_copy, cmdline, PGSIZE);
   char *save_ptr;
@@ -244,7 +246,7 @@ load (const char *cmdline, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
-  file = filesys_open (file_name); // this will at some point check if file_name is null or not. no worries with seg fault here
+  file = filesys_open (file_name);
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", file_name);
@@ -324,7 +326,7 @@ load (const char *cmdline, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp, (char *) cmdline))
+  if (!setup_stack (esp, (char *) cmdline)) // OUR CODE HERE
     goto done;
   // hex_dump(0, *esp, 200, true);
 
@@ -336,6 +338,7 @@ load (const char *cmdline, void (**eip) (void), void **esp)
  done:
   /* We arrive here whether the load is successful or not. */
   file_close (file);
+  // OUR CODE HERE
   palloc_free_page(cmdline_copy);
   return success;
 }
@@ -459,86 +462,72 @@ setup_stack (void **esp, char *cmdline)
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
   if (kpage != NULL) 
     {
-      // OUR CODE HERE:
-      /* user_page = ((uint8_t *) PHYS_BASE) - PGSIZE;
-      success = install_page (user_page, kpage, true); */
       success = install_page(((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
-        parse_and_load_cmdline(cmdline, esp); //*esp = PHYS_BASE;
-      else {
+        parse_and_load_cmdline(cmdline, esp); // OUR CODE HERE
+      else
         palloc_free_page (kpage);
-      } 
     }
   return success;
 }
 
-/* Processes and sets up command line arguments in KPAGE. CMDLINE is still
-   separated by spaces and needs to be parsed. This method should set
-   *ESP to the initial stack pointer to run this overall process 
-*/
+/* Parses and sets up command line arguments in CMDLINE onto stack.
+   CMDLINE is still separated by spaces and needs to be parsed. */
 static void
 parse_and_load_cmdline(char *cmdline, void **esp)
 {
   // OUR CODE HERE
   *esp = PHYS_BASE;
   char *token, *save_ptr;
-  char* argv[MAX_ARGS];
+  char *argv[MAX_ARGS];
   int argc = 0;
-  int i;
-  uint32_t addresses[MAX_ARGS];
 
+  /* Parsing command line and storing into array. */
   for (token = strtok_r(cmdline, " ", &save_ptr); token != NULL;
        token = strtok_r(NULL, " ", &save_ptr))
     {
-      argv[argc] = token;
-      argc++;
-      // argv[argc++] = token;
+      argv[argc++] = token;
+      // argv[argc] = token;
+      // argc++;
     }
 
+  /* Stuffing in the argument strings on command line to stack. */
+  uint32_t addresses[MAX_ARGS];
+  int i;
   for (i = argc - 1; i >= 0; i--) {
-    int arg_len = strlen(argv[i]);
-    *esp -= (arg_len + 1);
+    int arg_len = strlen(argv[i]) + 1; // + 1 for the ending null terminator
+    *esp -= arg_len;
     addresses[i] = (uint32_t) *esp;
-    memcpy(*esp, argv[i], arg_len + 1);
-    //memcpy(*esp, argv[i], arg_len);
-    //memset(*esp + arg_len, '\0', 1); // need to add on null terminator for each char
+    memcpy(*esp, argv[i], arg_len);
   }
   
-  /* Need to word-align. */
-  if (((uint32_t) *esp) % 4 != 0) {
-    // filling in with zero's
-    int word_align = ((uint32_t) *esp) % 4;
+  /* Need to word-align for faster accesses. */
+  int word_align = ((uint32_t) *esp) % 4;
+  if (word_align != 0) {
     *esp -= word_align;
     memset(*esp, 0, word_align);
   }
 
-  /* argv[argc] by project specs is set to 0 / NULL */
+  /* argv[argc] by project specs is set to 0 and is a char pointer. */
   *esp -= sizeof(char *);
   memset(*esp, 0, sizeof(char *));
   for (i = argc - 1; i >= 0; i--) {
     *esp -= sizeof(char *);
-    // **esp = addresses[i]; // or it's * (void **) esp;
     memcpy(*esp, &addresses[i], sizeof(char *));
-    // memcpy(*esp, &argv[i], sizeof(char *));
-    /* *esp -= 4;
-    *(char *) *esp = argv[i]; */
-    //*(char *)*esp = argv[i];
   }
-  /* Gotta push argv and argc here below, along with other stuff... */
-  // char *temp_ptr = *esp; maybe it's like this says phil
+
+  /* Pushing argv[] array onto stack */
   char **temp_ptr = *esp;
   *esp -= sizeof(char **);
   memcpy(*esp, &temp_ptr, sizeof(char **));
-  /* *esp -= 4;
-  *(char **) *esp = temp_ptr; */
 
-  // pushing argc here now
+  /* pushing argc onto stack */
   *esp -= sizeof(int);
   memcpy(*esp, &argc, sizeof(int));
-  // pushing dummy return address here
+
+  /* pushing dummy return address here */
   *esp -= sizeof(void *);
-  // memcpy(*esp, &argv, sizeof(void *));  
-  memset(*esp, 0, sizeof(void *));
+  memcpy(*esp, &argv, sizeof(void *)); // garbage here, so anything is cool 
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel

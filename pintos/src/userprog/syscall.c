@@ -5,65 +5,9 @@
 #include "threads/thread.h"
 
 static void syscall_handler (struct intr_frame *);
-
-/* Increments the passed in integer argument by 1 */
-int cmd_null (struct intr_frame *f, uint32_t *argv) {
-  int i = argv[0];
-  return i+1;
-}
-
-/* Writes size bytes from buffer to the open file fd */
-int cmd_write (struct intr_frame *f, uint32_t *argv) {
-  int fd = argv[0];
-  const void *buffer = argv[1];
-  unsigned size = argv[2];
-  //printf("%s", buffer);
-  putbuf(argv[1], argv[2]);
-  return size;
-}
-
-/* Terminates the current user program, returning status to the kernel */
-int cmd_exit (struct intr_frame *f, uint32_t *argv) {
-  int status = argv[0];
-  printf ("%s: exit(%d)\n", thread_current() -> name, status);
-  f->eax = status;
-  // f->error_code = status;
-  thread_exit();
-  return 1;
-}
-
-
-/* Command Lookup table */
-typedef int cmd_fun_t (struct intr_frame *f, uint32_t *argv);
-typedef struct fun_desc {
-  cmd_fun_t *fun;
-  int cmd;
-} fun_desc_t;
-
-fun_desc_t cmd_table[] = {
-  // {cmd_halt, SYS_HALT, "Terminates Pintos by calling power_off()"},
-  {cmd_exit, SYS_EXIT},
-  // {cmd_exec, SYS_EXEC, "Runs the executable whose name is given in cmd_line"},
-  // {cmd_wait, SYS_WAIT, "If process pid is still alive, waits until it dies"},
-  // {cmd_create, SYS_CREATE, "Creates a new file called file initially initial_size bytes in size"},
-  // {cmd_remove, SYS_REMOVE, "Deletes the file called file"},
-  // {cmd_open, SYS_OPEN, "Opens the file called file"},
-  // {cmd_filesize, SYS_FILESIZE, "Returns the size, in bytes, of the file open as fd"},
-  // {cmd_read, SYS_READ, "Reads size bytes from the file open as fd into buffer"},
-  {cmd_write, SYS_WRITE},
-  // {cmd_seek, SYS_SEEK, "Changes the next byte to be read or written in open file fd to position"},
-  // {cmd_tell, SYS_TELL, "Returns the position of the next byte to be read or written in open file fd"},
-  // {cmd_close, SYS_CLOSE, "Closes file descriptor fd"}
-  {cmd_null, SYS_NULL}
-};
-
-int lookup(int cmd) {
-  int i;
-  for (i=0; i < (sizeof(cmd_table)/sizeof(fun_desc_t)); i++) {
-    if (cmd && cmd_table[i].cmd == cmd) return i;
-  }
-  return -1;
-}
+static void syscall_null (struct intr_frame *f, uint32_t *argv);
+static void syscall_write (struct intr_frame *f, uint32_t *argv);
+static void syscall_exit (struct intr_frame *f, uint32_t *argv);
 
 void
 syscall_init (void) 
@@ -72,19 +16,64 @@ syscall_init (void)
 }
 
 static void
-syscall_handler (struct intr_frame *f UNUSED) 
+syscall_handler (struct intr_frame *f) 
 {
-
   uint32_t* args = ((uint32_t*) f->esp);
-  // printf("System call number: %d\n", args[0]);
+  // OUR CODE HERE
+  switch (args[0]) {
+    
+    case SYS_EXIT: {
+      syscall_exit(f, &args[1]);
+      break;
+    }
 
-  // system call table lookup
-  int fundex = -1;
-  int return_val;
-  fundex = lookup(args[0]);
-  if (fundex >= 0) {
-    return_val = cmd_table[fundex].fun(f, &args[1]);
+    case SYS_NULL: {
+      syscall_null(f, &args[1]);
+      break;
+    }
+
+    case SYS_WRITE: {
+      syscall_write(f, &args[1]);
+      break;
+    }
+    /*
+    case: SYS_HALT {
+
+    }
+
+    case: SYS_WAIT {
+
+    }
+
+    case: SYS_CREATE {
+
+    } */
   }
-  f->eax = return_val;
-
 }
+
+/* Syscall handler when syscall exit is invoked.
+ *
+ * First sets the eax register of the intr_frame and then thread exits. */
+static void syscall_exit (struct intr_frame *f, uint32_t *argv) {
+  int status = argv[0];
+  printf("%s: exit(%d)\n", thread_current()->name, status);
+  f->eax = status;
+  thread_exit();
+}
+
+/* Syscall handler when syscall null is invoked. Dummy syscall that
+   typicall is implemented in most operating systems, this is just a warm
+   up for our pintos project. */
+static void syscall_null (struct intr_frame *f, uint32_t *argv) {
+  f->eax = argv[0] + 1;
+}
+
+/* Syscall handler when syscall write is invoked. */
+static void syscall_write (struct intr_frame *f, uint32_t *argv) {
+  // int fd = argv[0];
+  const void *buffer = (const void *) argv[1];
+  unsigned size = argv[2];
+  putbuf(buffer, size);
+  f->eax = size;
+}
+
