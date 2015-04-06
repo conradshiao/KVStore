@@ -3,11 +3,13 @@
 tests/%.output: FILESYSSOURCE = --filesys-size=2
 tests/%.output: PUTFILES = $(filter-out kernel.bin loader.bin, $^)
 
-tests/userprog_TESTS = $(addprefix tests/userprog/, exit\
-args-none args-single args-multiple args-many args-dbl-space		\
-iloveos null-test)
+tests/userprog_TESTS = $(addprefix tests/userprog/, halt exit \
+exec-once exec-multiple exec-missing exec-bad-ptr wait-simple wait-twice \
+wait-killed wait-bad-pid \
+)
 
-tests/userprog_PROGS = $(tests/userprog_TESTS) 
+tests/userprog_PROGS = $(tests/userprog_TESTS) $(addprefix \
+tests/userprog/,child-simple child-args child-bad child-close child-rox)
 
 tests/userprog/iloveos_SRC = tests/userprog/iloveos.c tests/main.c
 tests/userprog/null-test_SRC = tests/userprog/null-test.c tests/main.c
