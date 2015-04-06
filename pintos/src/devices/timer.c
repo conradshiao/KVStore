@@ -7,11 +7,9 @@
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
-#include "threads/fixed-point.h" // karen added this
   
 /* See [8254] for hardware details of the 8254 timer chip. */
 
-/* There are TIMER_FREQ timer ticks per second. */
 #if TIMER_FREQ < 19
 #error 8254 timer requires TIMER_FREQ >= 19
 #endif
@@ -26,23 +24,11 @@ static int64_t ticks;
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
 
-/* Global list of currently sleeping threads in ascending sorted order of
-   wakeup times. */
-static struct list sleeping_threads;
-
-/* Every fourth tick, we recalculate each thread's priority when
-   thread_mlfqs option is set to true. */
-#define BSD_PRIORITY_TIME_SLICE 4
-
 static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
-
-/* Comparator function for the sleeping thread's wakeup times. */
-bool compare_wakeup(const struct list_elem *a,
-                    const struct list_elem *b, void *aux);
 
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
@@ -51,7 +37,6 @@ timer_init (void)
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
-  list_init(&sleeping_threads);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -88,7 +73,6 @@ timer_ticks (void)
   enum intr_level old_level = intr_disable ();
   int64_t t = ticks;
   intr_set_level (old_level);
-
   return t;
 }
 
@@ -100,33 +84,16 @@ timer_elapsed (int64_t then)
   return timer_ticks () - then;
 }
 
-/* Compares the wakeup_time field of the two threads who have
-   list_elem fields A and B. Returns true iff the wakeup_time of
-   thread constructed from A is less than that of the one constructed by B. */
-bool compare_wakeup(const struct list_elem *a,
-                    const struct list_elem *b, void *aux UNUSED) {
-  struct thread *first = list_entry(a, struct thread, timer_elem);
-  struct thread *second = list_entry(b, struct thread, timer_elem);
-  return first->wakeup_time < second->wakeup_time;
-}
-
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
    be turned on. */
 void
 timer_sleep (int64_t ticks) 
-{  
+{
+  int64_t start = timer_ticks ();
+
   ASSERT (intr_get_level () == INTR_ON);
-
-  enum intr_level prev_status = intr_disable();
-
-  struct thread *curr_thread = thread_current();
-  curr_thread->wakeup_time = timer_ticks() + ticks;
-  list_insert_ordered(&sleeping_threads, &curr_thread->timer_elem,
-                      &compare_wakeup, NULL);
-
-  intr_set_level(prev_status);
-
-  sema_down(&curr_thread->timer_semaphore);
+  while (timer_elapsed (start) < ticks) 
+    thread_yield ();
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -155,6 +122,7 @@ timer_nsleep (int64_t ns)
 
 /* Busy-waits for approximately MS milliseconds.  Interrupts need
    not be turned on.
+
    Busy waiting wastes CPU cycles, and busy waiting with
    interrupts off for the interval between timer ticks or longer
    will cause timer ticks to be lost.  Thus, use timer_msleep()
@@ -167,6 +135,7 @@ timer_mdelay (int64_t ms)
 
 /* Sleeps for approximately US microseconds.  Interrupts need not
    be turned on.
+
    Busy waiting wastes CPU cycles, and busy waiting with
    interrupts off for the interval between timer ticks or longer
    will cause timer ticks to be lost.  Thus, use timer_usleep()
@@ -179,6 +148,7 @@ timer_udelay (int64_t us)
 
 /* Sleeps execution for approximately NS nanoseconds.  Interrupts
    need not be turned on.
+
    Busy waiting wastes CPU cycles, and busy waiting with
    interrupts off for the interval between timer ticks or longer
    will cause timer ticks to be lost.  Thus, use timer_nsleep()
@@ -200,40 +170,8 @@ timer_print_stats (void)
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
-  /* Lots of work done here below. We want to do things stably as the thread
-     fields are being modified, so disabling interrupts for safety. */
-  enum intr_level prev_status = intr_disable();
-
   ticks++;
-  thread_tick();
-  int64_t curr_time = timer_ticks();
-  
-  if (thread_mlfqs) {
-    /* We reset load_avg and every thread's recent_cpu every second. */
-    if (ticks % TIMER_FREQ == 0) { // 1 second = TIMER_FREQ timer ticks
-      mlfqs_reset_load_avg();
-      mlfqs_reset_recent_cpu();
-    }
-    /* We update all thread's priorities every 4 timer ticks. */
-    if (ticks % BSD_PRIORITY_TIME_SLICE == 0) { // every 4 timer ticks
-      mlfqs_reset_priorities();
-    }
-  }
-
-  while (!list_empty(&sleeping_threads)) {
-    struct list_elem *e = list_begin(&sleeping_threads);
-    struct thread *curr_thread = list_entry(e, struct thread, timer_elem);
-    if (curr_thread->wakeup_time > curr_time) {
-      break;
-    } else {
-      sema_up(&curr_thread->timer_semaphore);
-      list_pop_front(&sleeping_threads);
-    }
-  }
-
-  check_max_priority(); // yields if necessary, can execute with interrupts off
-
-  intr_set_level(prev_status);
+  thread_tick ();
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
@@ -255,9 +193,9 @@ too_many_loops (unsigned loops)
   return start != ticks;
 }
 
-/* Iterates through a simple loop LOOPS times, for implementingD
-
+/* Iterates through a simple loop LOOPS times, for implementing
    brief delays.
+
    Marked NO_INLINE because code alignment can significantly
    affect timings, so that if this function was inlined
    differently in different places the results would be difficult
