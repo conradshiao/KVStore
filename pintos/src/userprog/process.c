@@ -134,7 +134,9 @@ process_wait (tid_t child_tid)
       // Parent calls wait before child exits
       if (child->ref_cnt == 2) {
         sema_down(&child->dead);
-      }
+      }// else {
+      //  return -1;
+      // }
       exit_code = child->exit_code;
       list_remove(e); // try deleting
       free(child);

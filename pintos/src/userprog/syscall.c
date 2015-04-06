@@ -112,7 +112,7 @@ static int syscall_write (int fd, const void *buffer, unsigned size) {
 
 /* check if the ptr is valid or not  */
 void verify_user_ptr (const void* ptr) {
-  if (!is_user_vaddr(ptr) || ptr < USER_VADDR_START) {
+  if (!is_user_vaddr(ptr) || !pagedir_get_page(thread_current()->pagedir, ptr) || ptr == NULL) {
     syscall_exit(-1);
   }
 }
