@@ -26,9 +26,10 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
-// OUR CODE HERE
 #define TIME_SLICE 4
 
+// OUR CODE HERE
+#ifdef USERPROG
 /* Used by thread struct to represent the execution status */
 struct exec_status
   {
@@ -43,6 +44,7 @@ struct exec_status
     int exit_code;              /* child exit code, if dead */
     struct semaphore dead;      /* 1 = child alive, 0 = child dead */
   };
+#endif
 
 
 /* A kernel thread or user process.
@@ -114,35 +116,14 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;            /* List element. */
 
-    int64_t wakeup_time;              /* Time I wake up when sleeping. */
-
-    // OUR CODE HERE
-    /* Fields for timer.c to control when thread sleeps. */
-
-    /* list_elem struct for timer.c access for sleeping_threads list. */
-    struct list_elem timer_elem;
-    /* semaphore to control access of when I am sleeping. */ 
-    struct semaphore timer_semaphore;
-
-    /* Fields for priority donation. */
-    int orig_priority;                /* My original priority. */
-
-    struct list_elem donor_elem;      /* list_elem to access my donor list. */
-    struct list donors;               /* List of threads waiting on the lock I
-                                         hold that donate priority to me. */
-    struct lock *wanted_lock;         /* Lock that I am currently waiting for.
-                                         This will be NULL if I'm not waiting
-                                         on any lock. */
-
-    /* Fields for advanced scheduling. */
-    int nice;                           /* Nice value */
-    fixed_point_t recent_cpu;           /* Recent CPU time */
-
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
+    
+    // OUR CODE HERE
     struct exec_status *exec_status;    /* This process’s execution state */                         
     struct list children;               /* Execution status of children */
+
 #endif
 
     /* Owned by thread.c. */
@@ -184,25 +165,5 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
-
-// OUR CODE HERE
-/* Priority donation functions. */
-void check_max_priority(void);
-void priority_donation(void);
-void release_threads_waiting_on_lock(struct lock *lock);
-void update_priority(void);
-
-/* Comparator functions for threads. */
-bool priority_less(const struct list_elem *a,
-                   const struct list_elem *b, void *aux UNUSED);
-bool donor_priority_less(const struct list_elem *a,
-                         const struct list_elem *b, void *aux UNUSED);
-bool thread_greater_priority(const struct list_elem *a,
-                             const struct list_elem *b, void *aux UNUSED);
-
-/* Advanced scheduler functions. */
-void mlfqs_reset_priorities(void);
-void mlfqs_reset_recent_cpu(void);
-void mlfqs_reset_load_avg(void);
 
 #endif /* threads/thread.h */
