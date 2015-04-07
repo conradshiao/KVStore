@@ -33,16 +33,18 @@ typedef int tid_t;
 /* Used by thread struct to represent the execution status */
 struct exec_status
   {
-    struct list_elem elem;      /* ‘children’ list element */
-    bool load_success;          /* true for successful load */
-    struct semaphore loaded;    /* 1 = loading, 0 = loaded for exec */
+    struct list_elem elem;      /* ‘children’ list element (for struct thread) */
+    bool load_success;          /* true iff child successfully loads */
+    struct semaphore loaded;    /* Initialized to 0 to wait for child thread
+                                   to load for exec syscall. */
     struct lock lock;           /* protects ref_cnt */
     int ref_cnt;                /* 2 = child, parent both alive,
                                    1 = either child or parent alive,
                                    0 = child and parent both dead */
     tid_t tid;                  /* child thread id */
     int exit_code;              /* child exit code, if dead */
-    struct semaphore dead;      /* 1 = child alive, 0 = child dead */
+    struct semaphore dead;      /* Initialized to 0 to wait for child thread
+                                   to die for wait syscall. */
   };
 #endif
 
