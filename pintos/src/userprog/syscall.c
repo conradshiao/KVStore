@@ -16,6 +16,15 @@ static int syscall_wait (tid_t pid);
 static int syscall_write (int fd, const void *buffer, unsigned size);
 static void syscall_exit (int status);
 static int syscall_exec (const char *cmd_line); 
+static bool syscall_create (const char *file, unsigned initial_size);
+static bool syscall_remove (const char *file);
+static int syscall_open (const char *file);
+static int syscall_filesize (int fd);
+static int syscall_read (int fd, void *buffer, unsigned length);
+static void syscall_seek (int fd, unsigned position);
+static unsigned syscall_tell (int fd);
+static void syscall_close (int fd);
+
 void verify_user_ptr (const void* ptr);
 void verify_arg(const void* ptr, int argc);
 void * user_to_kernel (const void *vaddr);
@@ -68,9 +77,10 @@ syscall_handler (struct intr_frame *f)
       f->eax = syscall_exec(user_to_kernel(args[1]));
       break;
     }
-    
+
     case SYS_CREATE: {
       // implement
+      f->eax - syscall_create(args[1]);
       break;
     }
     case SYS_REMOVE: {
@@ -142,6 +152,23 @@ static int syscall_write (int fd, const void *buffer, unsigned size) {
   // f->eax = size;
   return (int) size;
 }
+
+/* Syscall handler for create. Creates new file called file initial_size bytes in size */
+static bool syscall_create (const char *file, unsigned initial_size) {
+
+}
+
+static bool syscall_remove (const char *file) {
+  hash_delete(file_hm, )
+}
+
+static int syscall_open (const char *file);
+static int syscall_filesize (int fd);
+static int syscall_read (int fd, void *buffer, unsigned length);
+static void syscall_seek (int fd, unsigned position);
+static unsigned syscall_tell (int fd);
+static void syscall_close (int fd);
+
 
 /* check if the ptr is valid or not  */
 void verify_user_ptr (const void* ptr) {
