@@ -8,26 +8,18 @@
 #include "threads/vaddr.h"
 #include "devices/shutdown.h"
 
-#define USER_VADDR_START 0x08048000
-
 static void syscall_handler (struct intr_frame *);
-// static void syscall_null (struct intr_frame *f, uint32_t *argv);
-static int syscall_wait (tid_t pid); 
-static int syscall_write (int fd, const void *buffer, unsigned size);
-static void syscall_exit (int status);
-static int syscall_exec (const char *cmd_line); 
-static bool syscall_create (const char *file, unsigned initial_size);
-static bool syscall_remove (const char *file);
-static int syscall_open (const char *file);
-static int syscall_filesize (int fd);
-static int syscall_read (int fd, void *buffer, unsigned length);
-static void syscall_seek (int fd, unsigned position);
-static unsigned syscall_tell (int fd);
-static void syscall_close (int fd);
 
+// OUR CODE HERE
+static void halt (void);
+static int wait (tid_t pid); 
+static int write (int fd, const void *buffer, unsigned size);
+static void exit (int status);
+static int exec (const char *cmd_line); 
+>>>>>>> 3d9eb91d46d60a332a41ba068a6c2ad86d9fc05f
 void verify_user_ptr (const void* ptr);
-void verify_arg(const void* ptr, int argc);
-void * user_to_kernel (const void *vaddr);
+void verify_args(uint32_t *ptr, int argc);
+void* user_to_kernel (void *vaddr);
 
 void
 syscall_init (void) 
@@ -44,9 +36,9 @@ syscall_handler (struct intr_frame *f)
   switch (args[0]) {
     
     case SYS_EXIT: {
-      verify_arg(args, 1);
+      verify_args(args, 1);
       f->eax = args[1];
-      syscall_exit(args[1]);
+      exit(args[1]);
       break;
     }
 
@@ -56,25 +48,25 @@ syscall_handler (struct intr_frame *f)
     }
 
     case SYS_WRITE: {
-      verify_arg(args, 3);
-      f->eax = syscall_write(args[1], user_to_kernel(args[2]), args[3]);
+      verify_args(args, 3);
+      f->eax = write(args[1], user_to_kernel((void *) args[2]), args[3]);
       break;
     }
     
     case SYS_HALT: {
-      shutdown_power_off();
+      halt();
       break;
     }
 
     case SYS_WAIT: {
-      verify_arg(args, 1);
-      f->eax = syscall_wait(args[1]);
+      verify_args(args, 1);
+      f->eax = wait((tid_t) args[1]);
       break;
     }
 
     case SYS_EXEC: {
-      verify_arg(args, 1);
-      f->eax = syscall_exec(user_to_kernel(args[1]));
+      verify_args(args, 1);
+      f->eax = exec(user_to_kernel((void *) args[1]));
       break;
     }
 
@@ -114,43 +106,36 @@ syscall_handler (struct intr_frame *f)
   }
 }
 
-// void exit_on_invalid_ptr(const void* vaddr) {
-//   if (!is_user_vaddr(vaddr) || vaddr == NULL || /* Invalid memory segment. */) { // that is how you check for null pointers right?
-//     // README: terminate processes and free resources here if invalid pointer
-//   }
-// }
 
-/* Syscall handler when syscall exit is invoked.
- *
- * First sets the eax register of the intr_frame and then thread exits. */
-// static void syscall_exit (struct intr_frame *f, uint32_t *argv) {
-static void syscall_exit (int status) {
-  // int status = argv[0];
+/* Syscall handler when syscall exit is invoked. */
+static void exit (int status) {
   printf("%s: exit(%d)\n", thread_current()->name, status);
-  // f->eax = status;
   thread_current()->exec_status->exit_code = status;
   thread_exit();
+  // README: might need to save exit code on f->eax here when user_to_kernel fails??
 }
 
-
-static int syscall_wait (tid_t pid) {
-  return (int) process_wait(pid);
+/* Method for when syscall halt is invoked. */
+static void halt() {
+  shutdown_power_off();
 }
 
-// static void syscall_exec (struct intr_frame *f, uint32_t *argv) {
-static int syscall_exec (const char *cmd_line) {
+/* Method for when we want to invoke a syscall wait. */ 
+static int wait (tid_t pid) {
+  return process_wait(pid);
+}
+
+/* Method for when we invoke a syscall exec. */
+static int exec (const char *cmd_line) {
   // const char *file_name = (char *) user_to_kernel((const char *) argv[0]);
-  return (int) process_execute(cmd_line);
+  return process_execute(cmd_line);
 }
 
-/* Syscall handler when syscall write is invoked. */
-static int syscall_write (int fd, const void *buffer, unsigned size) {
-  // int fd = argv[0];
-  // const void *buffer = (void *) user_to_kernel((const void *) argv[1]);
-  
+/* Syscall handler for when a syscall write is invoked. */
+static int write (int fd UNUSED, const void *buffer, unsigned size) {
+  // const void *buffer = (void *) user_to_kernel((const void *) argv[1]); 
   putbuf(buffer, size);
-  // f->eax = size;
-  return (int) size;
+  return size;
 }
 
 /* Syscall handler for create. Creates new file called file initial_size bytes in size */
@@ -170,29 +155,32 @@ static unsigned syscall_tell (int fd);
 static void syscall_close (int fd);
 
 
-/* check if the ptr is valid or not  */
+/* Checks to see if the ptr is valid or not. A pointer is valid if and only if
+   it is not a null pointer, if it points to a mapped portion of virtual memory,
+   and it lies below PHYS_BASE.
+
+   If @ptr is invalid, we syscall exit with error code.  */
 void verify_user_ptr (const void* ptr) {
-  if (!is_user_vaddr(ptr) || !pagedir_get_page(thread_current()->pagedir, ptr) || ptr == NULL) {
-    syscall_exit(-1);
-  }
+  if (ptr == NULL || !is_user_vaddr(ptr) || pagedir_get_page(thread_current()->pagedir, ptr) == NULL)
+    exit(-1);
 }
 
-/*check if all fields in args have a valid address*/
-void verify_arg(const void* ptr, int argc) {
+/* Checks if all arguments, of length ARGC, have a valid address starting
+   from PTR + 1. */
+void verify_args(uint32_t *ptr, int argc) {
   int i;
   for (i = 1; i <= argc; i++)
-  {
-    verify_user_ptr(ptr + i);
-  }
+    verify_user_ptr((const void *) (ptr + i));
 }
 
 /* convert the user space pointer into kernel one */
-void* user_to_kernel (const void* ptr) {
-  verify_user_ptr(ptr);
-  struct thread* current = thread_current();
-  void* kernel_p = pagedir_get_page(current->pagedir, ptr); 
-  if (!kernel_p) {
-    syscall_exit(-1);
-  }
+void* user_to_kernel (void *ptr) {
+  /* README: the line of code below is NOT run when we call verify_args()
+     because this ptr is the DATA at that address, and not address itself */
+  verify_user_ptr((const void *) ptr); // have to verify the pointer you're transferring is valid also.
+  void* kernel_p = pagedir_get_page(thread_current()->pagedir, (const void *) ptr); 
+  if (kernel_p == NULL)
+    exit(-1);
   return kernel_p;
 }
+
