@@ -18,16 +18,15 @@
 #include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
-#include "threads/malloc.h"
+#include "threads/malloc.h" // OUR CODE HERE
 
 // OUR CODE HERE
-#define MAX_ARGS 128 // DON'T CHANGE THIS YET IT BREAKS IF YOU DO
+#define MAX_ARGS 128 // DON'T CHANGE THIS YET IT BREAKS IF YOU DO: I think we're overloading stack with our huge arrays and overflowing a page or something
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
-
-//OUR CODE HERE
-static void parse_and_load_cmdline(char *cmdline, void **esp);
+static void parse_and_load_cmdline(char *cmdline, void **esp); //OUR CODE HERE
+ 
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -50,34 +49,39 @@ process_execute (const char *file_name)
   char* save_ptr;
   char* thread_name = strtok_r((char *) file_name, " ", &save_ptr);
 
+  /* OUR CODE HERE: Initializing the exec_status between current thread and created thread below. */
   struct exec_status *child = malloc(sizeof(struct exec_status));
   sema_init(&child->loaded, 0);
   lock_init(&child->lock);
   sema_init(&child->dead, 0);
   child->ref_cnt = 2;
-  list_push_back(&thread_current()->children, &child->elem);
+  child->load_success = false;
+  list_push_back(&thread_current()->children, &child->elem); // pushing this exec_status onto parent's list of children
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (thread_name, PRI_DEFAULT, start_process, fn_copy);
-  child->tid = tid;
+  // child->tid = tid;
   
-  sema_down(&child->loaded);
-  if (tid == TID_ERROR)
+  //sema_down(&child->loaded);
+  if (tid == TID_ERROR) {
     palloc_free_page (fn_copy);
- // else
-  //  sema_down(&child->loaded);
+  } else {
+    child->tid = tid;
+    sema_down(&child->loaded);
+  }
+
   if (!child->load_success) {
     list_remove(&child->elem);
     free(child);
-    return -1;
+    return TID_ERROR; // typedef (tid_t) for -1
+  } else {
+    return tid;
   }
-  return tid;
 }
 
 /* A thread function that loads a user process and starts it
    running. */
 static void
-// start_process (void *exec_status)
 start_process (void *file_name_)
 {
   char *file_name = file_name_;
@@ -90,10 +94,10 @@ start_process (void *file_name_)
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
 
-  // OUR CODE HERE
+  // OUR CODE HERE: setting the "load success" fields of our exec_status here 
   struct exec_status *exec_status = thread_current()->exec_status;
   exec_status->load_success = success;
-  sema_up(&exec_status->loaded); // signal process_execute()
+  sema_up(&exec_status->loaded); // signal parent in process_execute()
   
   /* If load failed, quit. */
   palloc_free_page (file_name);
@@ -123,23 +127,20 @@ int
 process_wait (tid_t child_tid) 
 {
   // OUR CODE HERE
-  int exit_code;
-  struct exec_status *child;
-  // find child process tid that matches child_tid
-  struct list_elem *e = list_begin(&thread_current()->children);
-  while (e != list_end(&thread_current()->children)) {
-    child = list_entry(e, struct exec_status, elem);
+  struct list_elem *e;
+  for (e = list_begin(&thread_current()->children); e != list_end(&thread_current()->children);
+       e = list_next(e))
+  {
+    struct exec_status *child = list_entry(e, struct exec_status, elem);
     if (child->tid == child_tid) {   
-      // Parent calls wait before child exits
-      if (child->ref_cnt == 2) {
+      if (child->ref_cnt == 2) { // Parent calls wait before child exits
         sema_down(&child->dead);
       }
-      exit_code = child->exit_code;
-      list_remove(e); // try deleting
+      int exit_code = child->exit_code;
+      list_remove(e);
       free(child);
       return exit_code;
     }
-    e = list_next(e);
   }
   return -1;
 }
@@ -168,9 +169,7 @@ process_exit (void)
       pagedir_destroy (pd);
     }
   
-  // OUR CODE HERE
-  sema_up (&cur->exec_status->dead);
-  // Free children
+  // OUR CODE HERE: Free children
   struct list_elem *e = list_begin(&cur->children);
   while (!list_empty(&cur->children)) {
     struct exec_status *child = list_entry(e, struct exec_status, elem);
@@ -181,6 +180,10 @@ process_exit (void)
     if (child->ref_cnt == 0)
       free(child);
   }
+  lock_acquire(&cur->exec_status->lock);
+  cur->exec_status->ref_cnt--;
+  lock_release(&cur->exec_status->lock);
+  sema_up (&cur->exec_status->dead);
 }
 
 /* Sets up the CPU for running user code in the current
@@ -387,7 +390,7 @@ load (const char *cmdline, void (**eip) (void), void **esp)
 
   success = true;
 
- done:
+done:
   /* We arrive here whether the load is successful or not. */
   file_close (file);
   // OUR CODE HERE
