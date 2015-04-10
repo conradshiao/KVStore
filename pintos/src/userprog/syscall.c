@@ -17,7 +17,6 @@ static void syscall_handler (struct intr_frame *);
 // OUR CODE HERE
 static int wait (tid_t pid); 
 static int write (int fd, const void *buffer, unsigned size);
-static void exit (int status);
 static int exec (const char *cmd_line);
 static bool create (const char *file, unsigned initial_size);
 static bool remove (const char *file);
@@ -172,7 +171,7 @@ syscall_handler (struct intr_frame *f)
 
 
 /* Syscall handler when syscall exit is invoked. */
-static void exit (int status) {
+void exit (int status) {
   printf("%s: exit(%d)\n", thread_current()->name, status);
   thread_current()->exec_status->exit_code = status;
   thread_exit();
