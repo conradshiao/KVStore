@@ -272,6 +272,7 @@ static int read (int fd, void *buffer, unsigned length) {
     // size = -1; // won't hit here
     // NOTE README: this case does happen in test. Either we exit(-1) or we simply return 0...
     exit(-1);
+    size = -1; // or 0? or should I exit? idk
   } else {
     lock_acquire(&file_lock);
     size = file_read(fd_to_file_wrapper(fd)->file, buffer, length);
@@ -299,7 +300,7 @@ static unsigned tell (int fd) { // DONE
 static void close (int fd) {
   if (fd == STDIN_FILENO || fd == STDOUT_FILENO) {
     exit(-1);
-    // return -1; // what should I do here?
+    // return -1; // what should I do here? or should I just exit here?
   }
   lock_acquire(&file_lock);
   struct file_wrapper *curr = fd_to_file_wrapper(fd);
