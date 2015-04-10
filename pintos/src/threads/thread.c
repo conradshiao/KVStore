@@ -468,6 +468,7 @@ init_thread (struct thread *t, const char *name, int priority)
 #ifdef USERPROG
   // OUR CODE HERE
   list_init(&t->children); 
+  list_init(&t->files);
   struct thread *parent = running_thread();
 
   if (!list_empty(&parent->children))

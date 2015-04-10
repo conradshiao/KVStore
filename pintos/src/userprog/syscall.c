@@ -7,24 +7,71 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "devices/shutdown.h"
+// OUR CODE HERE
+#include "filesys/file.h"
+#include "devices/input.h"
+
+static struct lock file_lock;
+static struct lock fd_lock;
+static struct hash hash_table;
+
 
 static void syscall_handler (struct intr_frame *);
-
 // OUR CODE HERE
 static void halt (void);
 static int wait (tid_t pid); 
 static int write (int fd, const void *buffer, unsigned size);
 static void exit (int status);
-static int exec (const char *cmd_line); 
->>>>>>> 3d9eb91d46d60a332a41ba068a6c2ad86d9fc05f
+static int exec (const char *cmd_line);
+static bool create (const char *file, unsigned initial_size);
+static bool remove (const char *file);
+static int open (const char *file);
+static int filesize (int fd);
+static int read (int fd, void *buffer, unsigned length);
+static void seek (int fd, unsigned position);
+static unsigned tell (int fd);
+static void close (int fd); 
 void verify_user_ptr (const void* ptr);
 void verify_args(uint32_t *ptr, int argc);
 void* user_to_kernel (void *vaddr);
+// static unsigned hash_func(struct hash_elem *f_, void *aux);
+// static bool file_less (struct hash_elem *a_, struct hash_elem *b_);
+
+// static unsigned curr_fd;
+
+// struct file_wrapper
+//   {
+//     unsigned fd;
+//     struct list_elem thread_elem
+//     struct hash_elem hash_elem;
+//     struct file *file;
+//   };
+
+
+/* Returns a hash value for file f. */
+static struct file * 
+hash_func (struct hash_elem *f_, void *aux UNUSED)
+{
+  struct file_wrapper *f = hash_entry (f_, struct page_wrapper, hash_elem);
+  return f->file;
+}
+
+ Returns true if file a precedes file b. 
+static bool
+hash_less (struct hash_elem *a_, struct hash_elem *b_) 
+{
+  struct file *a = hash_entry (a_, struct file, hash_elem);
+  struct file *b = hash_entry (b_, struct file, hash_elem);
+  return a->fd < b->fd;
+}
 
 void
 syscall_init (void) 
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
+  lock_init(&file_lock);
+  // lock_init(&fd_lock);
+  // hash_init(&hash_table, &hash_func, &hash_less, NULL);
 }
 
 static void
@@ -43,13 +90,16 @@ syscall_handler (struct intr_frame *f)
     }
 
     case SYS_NULL: {
+      verify_args(args, 1);
       f->eax = args[1] + 1;
       break;
     }
 
     case SYS_WRITE: {
       verify_args(args, 3);
+      lock_acquire(&file_lock);
       f->eax = write(args[1], user_to_kernel((void *) args[2]), args[3]);
+      lock_release(&file_lock);
       break;
     }
     
@@ -71,36 +121,52 @@ syscall_handler (struct intr_frame *f)
     }
 
     case SYS_CREATE: {
-      // implement
-      f->eax - syscall_create(args[1]);
+      verify_args(args, 2);
+      f->eax = create((const char *)args[1], (unsigned) args[2]);
       break;
     }
+
     case SYS_REMOVE: {
-      // implement
+      verify_args(args, 1);
+      f->eax = remove((const char *)args[1]);
       break;
     }
+
     case SYS_OPEN: {
-      // implement
+      verify_args(1);
+      f->eax = open((const char *) args[1]);
+      struct file *file = file_open (struct inode *);
       break;
     }
+
     case SYS_FILESIZE: {
-      // implement
-     break;
+      verify_args(1);
+      f->eax = filesize((int) args[1]);
+      break;
     }
+
     case SYS_READ: {
-      // implement
+      verify_args(3);
+      f->eax = read((int) fd, (void *) buffer, (unsigned) length);
       break;
     }
+
     case SYS_SEEK: {
-      // implement
+      verify_args(2);
+      seek((int) args[1], (unsigned) args[2]);
       break;
     }
+
     case SYS_TELL: {
-      // implement
+      verify_args(1);
+      f->eax = file_tell (struct file *);
       break;
     }
+
     case SYS_CLOSE: {
-      // implement
+      verify_args(1);
+      close((int) args[1]);
+      file_close (struct file *);
       break;
     }
   }
@@ -132,27 +198,84 @@ static int exec (const char *cmd_line) {
 }
 
 /* Syscall handler for when a syscall write is invoked. */
-static int write (int fd UNUSED, const void *buffer, unsigned size) {
+static int write (int fd, const void *buffer, unsigned size) {
   // const void *buffer = (void *) user_to_kernel((const void *) argv[1]); 
-  putbuf(buffer, size);
-  return size;
+  if (fd == STDOUT_FILENO) {
+    putbuf(buffer, size);
+    return size;
+  } else if (fd == STDIN_FILENO)
+    return -1;
+  else {
+    struct file *file;
+    lock_acquire(&file_lock);
+    int read_size = (int) file_write(file, buffer, (off_t) size);
+    lock_release(&file_lock);
+    return read_size;
+  }
 }
 
-/* Syscall handler for create. Creates new file called file initial_size bytes in size */
-static bool syscall_create (const char *file, unsigned initial_size) {
-
+/* Syscall handler for when a syscall create is invoked. */
+static bool create (const char *file, unsigned initial_size) { // DONE
+  return filesys_create(file, (off_t) initial_size); 
 }
 
-static bool syscall_remove (const char *file) {
-  hash_delete(file_hm, )
+/* Syscall handler for when a syscall remove is invoked. */
+static bool remove (const char *file) {
+  return filesys_remove(file);
 }
 
-static int syscall_open (const char *file);
-static int syscall_filesize (int fd);
-static int syscall_read (int fd, void *buffer, unsigned length);
-static void syscall_seek (int fd, unsigned position);
-static unsigned syscall_tell (int fd);
-static void syscall_close (int fd);
+/* Syscall handler for when a syscall open is invoked. */
+static int open (const char *file_) { // DONE
+  struct file *file = filesys_open(file);
+  if (file == NULL)
+    return -1;
+  struct file_wrapper *f = (struct file_wrapper *) malloc(sizeof(struct file_wrapper));
+  f->file = file;
+  list_push_back(&thread_current()->file_wrappers, &f->list_elem);
+  lock_acquire(&fd_lock);
+  int fd = curr_fd++;
+  lock_release(&fd_lock);
+  f->fd = fd;
+  hash_insert(&hash_table, &f->hash_elem);
+  return fd;
+}
+
+/* Syscall handler for when a syscall filesize is invoked. */
+static int filesize (int fd) { // DONE
+  return (int) file_length (fd_to_file(fd));
+}
+
+/* Syscall handler for when a syscall read is invoked. */
+static int read (int fd, void *buffer, unsigned length) {
+  if (fd == STDIN_FILENO) {
+    int i;
+    for (i = 0; i < length; i++)
+      input_getc();
+    return length;
+  } else if (fd == STDOUT_FILENO)
+    return -1;
+  else {
+    lock_acquire(&file_lock);
+    int size = (int) file_read(fd_to_file(fd), buffer, (off_t) length);
+    lock_release(&file_lock);
+    return size;
+  }
+}
+
+/* Syscall handler for when a syscall seek is invoked. */
+static void seek (int fd, unsigned position) { // DONE
+  file_seek (fd_to_file(fd), (off_t) position);
+}
+
+/* Syscall handler for when a syscall tell is invoked. */
+static unsigned tell (int fd) { // DONE
+  return (unsigned) file_tell(fd_to_file(fd));
+}
+
+/* Syscall handler for when a syscall close is invoked. */
+static void close (int fd) {
+  file_close(fd_to_file(fd));
+}
 
 
 /* Checks to see if the ptr is valid or not. A pointer is valid if and only if
@@ -184,3 +307,15 @@ void* user_to_kernel (void *ptr) {
   return kernel_p;
 }
 
+struct file *
+fd_to_file (int fd) {
+  struct list list = thread_current()->fd_list;
+  struct list_elem e;
+  for (e = list_begin (&list); e != list_end (&list); e = list_next (e)) {
+      struct file_wrapper *file = list_entry (e, struct file_wrapper, elem);
+      if (file -> fd == fd) {
+        return file -> file;
+      }
+  }
+  return NULL;
+}
