@@ -250,12 +250,11 @@ gcc -m32  -Wl,--build-id=none -nostdlib -static -Wl,-T,../../lib/user/user.lds t
 pintos -v -k -T 60 --qemu  --filesys-size=2 -p tests/userprog/close-twice -a close-twice -p ../../tests/userprog/sample.txt -a sample.txt -- -q  -f run close-twice < /dev/null 2> tests/userprog/close-twice.errors > tests/userprog/close-twice.output
 perl -I../.. ../../tests/userprog/close-twice.ck tests/userprog/close-twice tests/userprog/close-twice.result
 FAIL tests/userprog/close-twice
-Kernel panic in run: PANIC at ../../userprog/exception.c:104 in kill(): Kernel bug - unexpected interrupt in kernel
-Call stack: 0xc00281fe 0xc002b6b1 0x804a28f
+Kernel panic in run: PANIC at ../../lib/kernel/list.c:84 in list_next(): assertion `is_head (elem) || is_interior (elem)' failed.
+Call stack: 0xc00281fe 0x804a28f
 Translation of call stack:
 In kernel.o:
 0xc00281fe: debug_panic (.../../lib/kernel/debug.c:38)
-0xc002b6b1: fd_to_file_wrapper (...../userprog/syscall.c:352)
 In tests/userprog/close-twice:
 0x0804a28f: close (...../lib/user/syscall.c:147)
 Translations of user virtual addresses above are based on a guess at
@@ -573,8 +572,7 @@ gcc -m32 -c ../../tests/filesys/base/child-syn-wrt.c -o tests/filesys/base/child
 gcc -m32  -Wl,--build-id=none -nostdlib -static -Wl,-T,../../lib/user/user.lds tests/filesys/base/child-syn-wrt.o tests/lib.o tests/filesys/seq-test.o lib/user/entry.o libc.a -o tests/filesys/base/child-syn-wrt
 pintos -v -k -T 60 --qemu  --filesys-size=2 -p tests/filesys/base/syn-write -a syn-write -p tests/filesys/base/child-syn-wrt -a child-syn-wrt -- -q  -f run syn-write < /dev/null 2> tests/filesys/base/syn-write.errors > tests/filesys/base/syn-write.output
 perl -I../.. ../../tests/filesys/base/syn-write.ck tests/filesys/base/syn-write tests/filesys/base/syn-write.result
-FAIL tests/filesys/base/syn-write
-run: exec child 2 of 10: "child-syn-wrt": FAILED
+pass tests/filesys/base/syn-write
 pass tests/userprog/exit
 pass tests/userprog/exec-once
 pass tests/userprog/exec-multiple
@@ -652,8 +650,8 @@ pass tests/filesys/base/sm-seq-block
 pass tests/filesys/base/sm-seq-random
 pass tests/filesys/base/syn-read
 pass tests/filesys/base/syn-remove
-FAIL tests/filesys/base/syn-write
-16 of 78 tests failed.
+pass tests/filesys/base/syn-write
+15 of 78 tests failed.
 make[1]: *** [check] Error 1
 make[1]: Leaving directory `/home/vagrant/code/group/pintos/src/userprog/build'
 make: *** [check] Error 2
