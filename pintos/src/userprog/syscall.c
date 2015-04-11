@@ -38,6 +38,7 @@ static struct lock fd_lock;
 
 struct file_wrapper
   {
+    bool closed;
     unsigned fd;
     struct file *file;
     struct list_elem thread_elem;
@@ -174,6 +175,12 @@ syscall_handler (struct intr_frame *f)
 void exit (int status) {
   printf("%s: exit(%d)\n", thread_current()->name, status);
   thread_current()->exec_status->exit_code = status;
+  struct list_elem *e = list_begin(&thread_current()->file_wrappers);
+  while (!list_empty(&thread_current()->file_wrappers)) {
+    struct file_wrapper *temp = list_entry(e, struct file_wrapper, thread_elem);
+    e = list_remove(e);
+    free(temp);
+  }
   thread_exit();
   // README: might need to save exit code on f->eax here when user_to_kernel fails??
 }
@@ -245,6 +252,7 @@ static int open (const char *file_) { // DONE
     return -1;
   struct file_wrapper *f = (struct file_wrapper *) malloc(sizeof(struct file_wrapper));
   f->file = file;
+  f->closed = false;
   list_push_back(&thread_current()->file_wrappers, &f->thread_elem); // README: list_insert for more efficiency
   lock_acquire(&fd_lock);
   f->fd = curr_fd++;
@@ -314,13 +322,13 @@ static void close (int fd) {
   lock_acquire(&file_lock);
   struct file_wrapper *curr = fd_to_file_wrapper(fd);
   if (curr == NULL) { // i don't think this should hit, it's a sanity check
-    printf("fd_to_file_wrapper returned null....\n");
     exit(-1);
     return;
   }
+  if (curr->closed)
+    return;
   file_close(curr->file);
-  list_remove(&curr->thread_elem);
-  free(curr);
+  curr->closed = true;
   lock_release(&file_lock);
 }
 
