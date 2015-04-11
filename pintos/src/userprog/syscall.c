@@ -38,7 +38,7 @@ static struct lock fd_lock;
 
 struct file_wrapper
   {
-    bool closed;
+    // bool closed;
     unsigned fd;
     struct file *file;
     struct list_elem thread_elem;
@@ -268,7 +268,7 @@ static int open (const char *file_) { // DONE
   struct file_wrapper *f = (struct file_wrapper *) malloc(sizeof(struct file_wrapper));
   lock_acquire(&file_lock);
   f->file = file;
-  f->closed = false;
+  // f->closed = false;
   list_push_back(&thread_current()->file_wrappers, &f->thread_elem); // README: list_insert for more efficiency
   lock_release(&file_lock);
   lock_acquire(&fd_lock);
@@ -349,11 +349,11 @@ static void close (int fd) {
   struct file_wrapper *curr = fd_to_file_wrapper(fd);
   if (!curr) // added check
     exit(-1);
-  if (curr->closed)
-    return;
+  // if (curr->closed)
+    // return;
   list_remove(&curr->thread_elem);
   file_close(curr->file);
-  curr->closed = true;
+  // curr->closed = true;
   free(curr);
   lock_release(&file_lock);
 }
