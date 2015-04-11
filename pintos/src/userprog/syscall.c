@@ -17,7 +17,6 @@ static void syscall_handler (struct intr_frame *);
 // OUR CODE HERE
 static int wait (tid_t pid); 
 static int write (int fd, const void *buffer, unsigned size);
-static void exit (int status);
 static int exec (const char *cmd_line);
 static bool create (const char *file, unsigned initial_size);
 static bool remove (const char *file);
@@ -39,6 +38,7 @@ static struct lock fd_lock;
 
 struct file_wrapper
   {
+    bool closed;
     unsigned fd;
     struct file *file;
     struct list_elem thread_elem;
@@ -172,9 +172,15 @@ syscall_handler (struct intr_frame *f)
 
 
 /* Syscall handler when syscall exit is invoked. */
-static void exit (int status) {
+void exit (int status) {
   printf("%s: exit(%d)\n", thread_current()->name, status);
   thread_current()->exec_status->exit_code = status;
+  struct list_elem *e = list_begin(&thread_current()->file_wrappers);
+  while (!list_empty(&thread_current()->file_wrappers)) {
+    struct file_wrapper *temp = list_entry(e, struct file_wrapper, thread_elem);
+    e = list_remove(e);
+    free(temp);
+  }
   thread_exit();
   // README: might need to save exit code on f->eax here when user_to_kernel fails??
 }
@@ -196,17 +202,24 @@ static int write (int fd, const void *buffer, unsigned size) {
   if (fd == STDOUT_FILENO) {
     putbuf(buffer, size);
     return size;
+  } else if (fd == STDIN_FILENO) {
+    exit(-1);
+    return -1;
   } else {
     lock_acquire(&file_lock);
-    struct file *file = fd_to_file_wrapper(fd)->file;
+    struct file_wrapper *curr = fd_to_file_wrapper(fd);
+    if (curr == NULL)
+      exit(-1);
+    struct file *file = curr->file;
     int bytes_written; // default for error
-    if (file != NULL) {
+    /* if (file != NULL) {
       bytes_written = file_write(file, buffer, size);
     } else {
       lock_release(&file_lock);
       exit(-1); // not sure what to do here?
       return -1;
-    }
+    } */
+    bytes_written = file_write(file, buffer, size);
     lock_release(&file_lock);
     return bytes_written;
   }
@@ -239,6 +252,7 @@ static int open (const char *file_) { // DONE
     return -1;
   struct file_wrapper *f = (struct file_wrapper *) malloc(sizeof(struct file_wrapper));
   f->file = file;
+  f->closed = false;
   list_push_back(&thread_current()->file_wrappers, &f->thread_elem); // README: list_insert for more efficiency
   lock_acquire(&fd_lock);
   f->fd = curr_fd++;
@@ -275,6 +289,9 @@ static int read (int fd, void *buffer, unsigned length) {
     size = -1; // or 0? or should I exit? idk
   } else {
     lock_acquire(&file_lock);
+    struct file_wrapper *curr = fd_to_file_wrapper(fd);
+    if (curr == NULL)
+      exit(-1); // our new code here
     size = file_read(fd_to_file_wrapper(fd)->file, buffer, length);
     lock_release(&file_lock);
   }
@@ -305,13 +322,13 @@ static void close (int fd) {
   lock_acquire(&file_lock);
   struct file_wrapper *curr = fd_to_file_wrapper(fd);
   if (curr == NULL) { // i don't think this should hit, it's a sanity check
-    printf("fd_to_file_wrapper returned null....\n");
     exit(-1);
     return;
   }
+  if (curr->closed)
+    return;
   file_close(curr->file);
-  list_remove(&curr->thread_elem);
-  free(curr);
+  curr->closed = true;
   lock_release(&file_lock);
 }
 
@@ -352,17 +369,16 @@ fd_to_file_wrapper (int fd_) {
   // return hash_find (&hash_table, &f.hash_elem) == NULL ? NULL :
   //                   hash_entry(e, struct file_wrapper, hash_elem)->file;
   unsigned fd = (unsigned) fd_;
-  struct list my_files = thread_current()->file_wrappers;
+  //struct list my_files = thread_current()->file_wrappers;
   struct list_elem *e;
-  for (e = list_begin(&my_files); e != list_end(&my_files); e = list_next(e)) {
+  for (e = list_begin(&thread_current()->file_wrappers); e != list_end(&thread_current()->file_wrappers);
+       e = list_next(e)) {
     struct file_wrapper *curr = list_entry(e, struct file_wrapper, thread_elem);
     if (fd == curr->fd) {
       return curr;
     }
   }
-  if (1) {
-    printf("uh. it should not hit here. like. ever.\n");
-  }
+   // printf("uh. it should not hit here. like. ever.\n");
   return NULL; // should this ever hit?
 }
 
