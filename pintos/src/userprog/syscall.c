@@ -174,12 +174,18 @@ syscall_handler (struct intr_frame *f)
 /* Syscall handler when syscall exit is invoked. */
 void exit (int status) {
   printf("%s: exit(%d)\n", thread_current()->name, status);
-  thread_current()->exec_status->exit_code = status;
-  struct list_elem *e = list_begin(&thread_current()->file_wrappers);
-  while (!list_empty(&thread_current()->file_wrappers)) {
-    struct file_wrapper *temp = list_entry(e, struct file_wrapper, thread_elem);
-    e = list_remove(e);
-    free(temp);
+  struct thread *curr = thread_current();
+  curr->exec_status->exit_code = status;
+  // struct list_elem *e = list_begin(&curr->file_wrappers);
+  // while (!list_empty(&curr->file_wrappers)) {
+  //   struct file_wrapper *temp = list_entry(e, struct file_wrapper, thread_elem);
+  //   e = list_remove(e);
+  //   free(temp);
+  // }
+  struct list_elem *e;
+  while (!list_empty(&curr->file_wrappers)) {
+    e = list_begin(&curr->file_wrappers);
+    close(list_entry(e, struct file_wrapper, thread_elem)->fd);
   }
   thread_exit();
   // README: might need to save exit code on f->eax here when user_to_kernel fails??
@@ -193,7 +199,10 @@ static int wait (tid_t pid) {
 /* Method for when we invoke a syscall exec. */
 static int exec (const char *cmd_line) {
   // const char *file_name = (char *) user_to_kernel((const char *) argv[0]);
-  return process_execute(cmd_line);
+  lock_acquire(&file_lock);
+  int status = process_execute(cmd_line);
+  lock_release(&file_lock);
+  return status;
 }
 
 /* Syscall handler for when a syscall write is invoked. */
@@ -208,7 +217,7 @@ static int write (int fd, const void *buffer, unsigned size) {
   } else {
     lock_acquire(&file_lock);
     struct file_wrapper *curr = fd_to_file_wrapper(fd);
-    if (curr == NULL)
+    if (!curr) // added check
       exit(-1);
     struct file *file = curr->file;
     int bytes_written; // default for error
@@ -229,6 +238,8 @@ static int write (int fd, const void *buffer, unsigned size) {
 /* Syscall handler for when a syscall create is invoked. */
 static bool create (const char *file, unsigned initial_size) { // DONE
   // I don't think you need to lock_acquire here
+  if (!file)  // added check
+    exit(-1);
   lock_acquire(&file_lock);
   bool success = filesys_create(file, initial_size);
   lock_release(&file_lock);
@@ -238,6 +249,8 @@ static bool create (const char *file, unsigned initial_size) { // DONE
 /* Syscall handler for when a syscall remove is invoked. */
 static bool remove (const char *file) {
   // do I need to free the malloc here? I would need to iterate through all my children for duplicate files right? what about other threads?
+  if (!file)  // added check
+    exit(-1);
   lock_acquire(&file_lock);
   bool success = filesys_remove(file);
   lock_release(&file_lock);
@@ -247,13 +260,17 @@ static bool remove (const char *file) {
 /* Syscall handler for when a syscall open is invoked. */
 static int open (const char *file_) { // DONE
   // README: WHAT HAPPENS WHEN YOU TRY TO OPEN A CLOSED FILE?
+  lock_acquire(&file_lock);
   struct file *file = filesys_open(file_);
-  if (file == NULL)
+  lock_release(&file_lock);
+  if (!file)
     return -1;
   struct file_wrapper *f = (struct file_wrapper *) malloc(sizeof(struct file_wrapper));
+  lock_acquire(&file_lock);
   f->file = file;
   f->closed = false;
   list_push_back(&thread_current()->file_wrappers, &f->thread_elem); // README: list_insert for more efficiency
+  lock_release(&file_lock);
   lock_acquire(&fd_lock);
   f->fd = curr_fd++;
   lock_release(&fd_lock);
@@ -264,14 +281,17 @@ static int open (const char *file_) { // DONE
 /* Syscall handler for when a syscall filesize is invoked. */
 static int filesize (int fd) { // DONE
   lock_acquire(&file_lock);
-  int size = file_length (fd_to_file_wrapper(fd)->file);
+  struct file_wrapper *curr = fd_to_file_wrapper(fd);
+  if (!curr) // added check
+    exit(-1);
+  int size = file_length (curr->file);
   lock_release(&file_lock);
   return size;
 }
 
 /* Syscall handler for when a syscall read is invoked. */
-static int read (int fd, void *buffer, unsigned length) {
-  int size;
+static int read (int fd, void *buffer, unsigned length) {  // FIXME
+  int size = -1;
   if (fd == STDIN_FILENO) { // i don't think i need to lock_acquire and lock_release here
     uint8_t *buffer_copy = (uint8_t *) buffer;
     unsigned i;
@@ -285,14 +305,14 @@ static int read (int fd, void *buffer, unsigned length) {
     // exit(0);
     // size = -1; // won't hit here
     // NOTE README: this case does happen in test. Either we exit(-1) or we simply return 0...
-    exit(-1);
+    // exit(-1);
     size = -1; // or 0? or should I exit? idk
   } else {
     lock_acquire(&file_lock);
     struct file_wrapper *curr = fd_to_file_wrapper(fd);
-    if (curr == NULL)
-      exit(-1); // our new code here
-    size = file_read(fd_to_file_wrapper(fd)->file, buffer, length);
+    if (!curr)
+      exit(-1); // added check
+    size = file_read(curr->file, buffer, length);
     lock_release(&file_lock);
   }
   return size;
@@ -301,14 +321,20 @@ static int read (int fd, void *buffer, unsigned length) {
 /* Syscall handler for when a syscall seek is invoked. */
 static void seek (int fd, unsigned position) { // DONE
   lock_acquire(&file_lock);
-  file_seek (fd_to_file_wrapper(fd)->file, position);
+  struct file_wrapper *curr = fd_to_file_wrapper(fd);
+  if (!curr) // added check
+    exit(-1);
+  file_seek (curr->file, position);
   lock_release(&file_lock);
 }
 
 /* Syscall handler for when a syscall tell is invoked. */
 static unsigned tell (int fd) { // DONE
   lock_acquire(&file_lock);
-  unsigned position = file_tell(fd_to_file_wrapper(fd)->file);
+  struct file_wrapper *curr = fd_to_file_wrapper(fd);
+  if (!curr) // added check
+    exit(-1);
+  unsigned position = file_tell(curr->file);
   lock_release(&file_lock);
   return position;
 }
@@ -321,14 +347,14 @@ static void close (int fd) {
   }
   lock_acquire(&file_lock);
   struct file_wrapper *curr = fd_to_file_wrapper(fd);
-  if (curr == NULL) { // i don't think this should hit, it's a sanity check
+  if (!curr) // added check
     exit(-1);
-    return;
-  }
   if (curr->closed)
     return;
+  list_remove(&curr->thread_elem);
   file_close(curr->file);
   curr->closed = true;
+  free(curr);
   lock_release(&file_lock);
 }
 
@@ -346,7 +372,7 @@ void verify_user_ptr (const void* ptr) {
    from PTR + 1. */
 void verify_args(uint32_t *ptr, int argc) {
   int i;
-  for (i = 1; i <= argc; i++)
+  for (i = 0; i <= argc; i++)
     verify_user_ptr((const void *) (ptr + i));
 }
 
@@ -356,7 +382,7 @@ void* user_to_kernel (void *ptr) {
      because this ptr is the DATA at that address, and not address itself */
   verify_user_ptr((const void *) ptr); // have to verify the pointer you're transferring is valid also.
   void* kernel_p = pagedir_get_page(thread_current()->pagedir, (const void *) ptr);
-  if (kernel_p == NULL)
+  if (!kernel_p)
     exit(-1);
   return kernel_p;
 }
@@ -378,7 +404,5 @@ fd_to_file_wrapper (int fd_) {
       return curr;
     }
   }
-   // printf("uh. it should not hit here. like. ever.\n");
   return NULL; // should this ever hit?
 }
-
