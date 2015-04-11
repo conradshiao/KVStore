@@ -20,9 +20,6 @@
 #include "threads/vaddr.h"
 #include "threads/malloc.h" // OUR CODE HERE
 
-// OUR CODE HERE
-#define MAX_ARGS 128 // DON'T CHANGE THIS YET IT BREAKS IF YOU DO: I think we're overloading stack with our huge arrays and overflowing a page or something
-
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 static void parse_and_load_cmdline(char *cmdline, void **esp); //OUR CODE HERE
@@ -531,23 +528,47 @@ setup_stack (void **esp, char *cmdline)
 static void
 parse_and_load_cmdline(char *cmdline, void **esp)
 {
-  // OUR CODE HERE
-  *esp = PHYS_BASE;
+	// OUR CODE HERE
+  char *fn_copy = palloc_get_page (0);
+  if (fn_copy == NULL) {
+    printf("couldn't get palloc in parse_and_load\n");
+    return;
+  }
+  int max_args = 0;
+  strlcpy(fn_copy, cmdline, PGSIZE);
+  char *token1, *save_ptr1;
+  for (token1 = strtok_r(fn_copy, " ", &save_ptr1); token1 != NULL;
+       token1 = strtok_r(NULL, " ", &save_ptr1))
+  {
+    if (++max_args >= PGSIZE) break;
+  }
+  palloc_free_page(fn_copy);
+  
+	*esp = PHYS_BASE;
   char *token, *save_ptr;
-  char *argv[MAX_ARGS];
+  char **argv = (char **) malloc(max_args * sizeof(char *));
+	if (argv == NULL) {
+		printf("argv uh oh malloc parse_and...\n");
+		return;
+	}
   int argc = 0;
+  int curr_size = 0; 
 
   /* Parsing command line and storing into array. */
   for (token = strtok_r(cmdline, " ", &save_ptr); token != NULL;
        token = strtok_r(NULL, " ", &save_ptr))
     {
+      curr_size += strlen(token) + 1;
+      if (curr_size > PGSIZE) break;
       argv[argc++] = token;
-      // argv[argc] = token;
-      // argc++;
     }
 
   /* Stuffing in the argument strings on command line to stack. */
-  uint32_t addresses[MAX_ARGS];
+  uint32_t *addresses = (uint32_t *) malloc(max_args * sizeof(uint32_t *));
+	if (addresses == NULL) {
+		printf("addresses uh oh malloc parse_...\n");
+		return;
+	}
   int i;
   for (i = argc - 1; i >= 0; i--) {
     int arg_len = strlen(argv[i]) + 1; // + 1 for the ending null terminator
@@ -582,7 +603,11 @@ parse_and_load_cmdline(char *cmdline, void **esp)
 
   /* pushing dummy return address here */
   *esp -= sizeof(void *);
-  memcpy(*esp, &argv, sizeof(void *)); // garbage here, so anything is cool 
+  memcpy(*esp, &argv, sizeof(void *)); // garbage here, so anything is cool
+
+	/* Freeing our malloc'ed data structures here. */
+  free(argv);
+  free(addresses); 
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel
