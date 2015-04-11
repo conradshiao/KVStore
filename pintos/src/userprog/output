@@ -250,16 +250,37 @@ gcc -m32  -Wl,--build-id=none -nostdlib -static -Wl,-T,../../lib/user/user.lds t
 pintos -v -k -T 60 --qemu  --filesys-size=2 -p tests/userprog/close-twice -a close-twice -p ../../tests/userprog/sample.txt -a sample.txt -- -q  -f run close-twice < /dev/null 2> tests/userprog/close-twice.errors > tests/userprog/close-twice.output
 perl -I../.. ../../tests/userprog/close-twice.ck tests/userprog/close-twice tests/userprog/close-twice.result
 FAIL tests/userprog/close-twice
-Kernel panic in run: PANIC at ../../lib/kernel/list.c:84 in list_next(): assertion `is_head (elem) || is_interior (elem)' failed.
-Call stack: 0xc00281fe 0x804a28f
-Translation of call stack:
-In kernel.o:
-0xc00281fe: debug_panic (.../../lib/kernel/debug.c:38)
-In tests/userprog/close-twice:
-0x0804a28f: close (...../lib/user/syscall.c:147)
-Translations of user virtual addresses above are based on a guess at
-the binary to use.  If this guess is incorrect, then those
-translations will be misleading.
+Test output failed to match any acceptable form.
+
+Acceptable output:
+  (close-twice) begin
+  (close-twice) open "sample.txt"
+  (close-twice) close "sample.txt"
+  (close-twice) close "sample.txt" again
+  (close-twice) end
+  close-twice: exit(0)
+Differences in `diff -u' format:
+  (close-twice) begin
+  (close-twice) open "sample.txt"
+  (close-twice) close "sample.txt"
+  (close-twice) close "sample.txt" again
+- (close-twice) end
+- close-twice: exit(0)
++ fd_to_file_wrapper returned null....
++ close-twice: exit(-1)
+Acceptable output:
+  (close-twice) begin
+  (close-twice) open "sample.txt"
+  (close-twice) close "sample.txt"
+  (close-twice) close "sample.txt" again
+  close-twice: exit(-1)
+Differences in `diff -u' format:
+  (close-twice) begin
+  (close-twice) open "sample.txt"
+  (close-twice) close "sample.txt"
+  (close-twice) close "sample.txt" again
++ fd_to_file_wrapper returned null....
+  close-twice: exit(-1)
 gcc -m32 -c ../../tests/userprog/close-stdin.c -o tests/userprog/close-stdin.o -g -msoft-float -O -fno-stack-protector -nostdinc -I../.. -I../../lib -I../../lib/user -I. -Wall -W -Wstrict-prototypes -Wmissing-prototypes -Wsystem-headers  -MMD -MF tests/userprog/close-stdin.d
 gcc -m32  -Wl,--build-id=none -nostdlib -static -Wl,-T,../../lib/user/user.lds tests/userprog/close-stdin.o tests/main.o tests/lib.o lib/user/entry.o libc.a -o tests/userprog/close-stdin
 pintos -v -k -T 60 --qemu  --filesys-size=2 -p tests/userprog/close-stdin -a close-stdin -- -q  -f run close-stdin < /dev/null 2> tests/userprog/close-stdin.errors > tests/userprog/close-stdin.output
@@ -275,16 +296,25 @@ gcc -m32  -Wl,--build-id=none -nostdlib -static -Wl,-T,../../lib/user/user.lds t
 pintos -v -k -T 60 --qemu  --filesys-size=2 -p tests/userprog/close-bad-fd -a close-bad-fd -- -q  -f run close-bad-fd < /dev/null 2> tests/userprog/close-bad-fd.errors > tests/userprog/close-bad-fd.output
 perl -I../.. ../../tests/userprog/close-bad-fd.ck tests/userprog/close-bad-fd tests/userprog/close-bad-fd.result
 FAIL tests/userprog/close-bad-fd
-Kernel panic in run: PANIC at ../../lib/kernel/list.c:84 in list_next(): assertion `is_head (elem) || is_interior (elem)' failed.
-Call stack: 0xc00281fe 0x804a24f
-Translation of call stack:
-In kernel.o:
-0xc00281fe: debug_panic (.../../lib/kernel/debug.c:38)
-In tests/userprog/close-bad-fd:
-0x0804a24f: close (...../lib/user/syscall.c:147)
-Translations of user virtual addresses above are based on a guess at
-the binary to use.  If this guess is incorrect, then those
-translations will be misleading.
+Test output failed to match any acceptable form.
+
+Acceptable output:
+  (close-bad-fd) begin
+  (close-bad-fd) end
+  close-bad-fd: exit(0)
+Differences in `diff -u' format:
+  (close-bad-fd) begin
+- (close-bad-fd) end
+- close-bad-fd: exit(0)
++ fd_to_file_wrapper returned null....
++ close-bad-fd: exit(-1)
+Acceptable output:
+  (close-bad-fd) begin
+  close-bad-fd: exit(-1)
+Differences in `diff -u' format:
+  (close-bad-fd) begin
++ fd_to_file_wrapper returned null....
+  close-bad-fd: exit(-1)
 gcc -m32 -c ../../tests/userprog/read-normal.c -o tests/userprog/read-normal.o -g -msoft-float -O -fno-stack-protector -nostdinc -I../.. -I../../lib -I../../lib/user -I. -Wall -W -Wstrict-prototypes -Wmissing-prototypes -Wsystem-headers  -MMD -MF tests/userprog/read-normal.d
 gcc -m32  -Wl,--build-id=none -nostdlib -static -Wl,-T,../../lib/user/user.lds tests/userprog/read-normal.o tests/main.o tests/lib.o lib/user/entry.o libc.a -o tests/userprog/read-normal
 pintos -v -k -T 60 --qemu  --filesys-size=2 -p tests/userprog/read-normal -a read-normal -p ../../tests/userprog/sample.txt -a sample.txt -- -q  -f run read-normal < /dev/null 2> tests/userprog/read-normal.errors > tests/userprog/read-normal.output
@@ -314,11 +344,7 @@ gcc -m32 -c ../../tests/userprog/read-bad-fd.c -o tests/userprog/read-bad-fd.o -
 gcc -m32  -Wl,--build-id=none -nostdlib -static -Wl,-T,../../lib/user/user.lds tests/userprog/read-bad-fd.o tests/main.o tests/lib.o lib/user/entry.o libc.a -o tests/userprog/read-bad-fd
 pintos -v -k -T 60 --qemu  --filesys-size=2 -p tests/userprog/read-bad-fd -a read-bad-fd -- -q  -f run read-bad-fd < /dev/null 2> tests/userprog/read-bad-fd.errors > tests/userprog/read-bad-fd.output
 perl -I../.. ../../tests/userprog/read-bad-fd.ck tests/userprog/read-bad-fd tests/userprog/read-bad-fd.result
-FAIL tests/userprog/read-bad-fd
-Kernel panic in run: PANIC at ../../lib/kernel/list.c:84 in list_next(): assertion `is_head (elem) || is_interior (elem)' failed.
-Call stack: 0xc00281fe
-Translation of call stack:
-0xc00281fe: debug_panic (.../../lib/kernel/debug.c:38)
+pass tests/userprog/read-bad-fd
 gcc -m32 -c ../../tests/userprog/write-normal.c -o tests/userprog/write-normal.o -g -msoft-float -O -fno-stack-protector -nostdinc -I../.. -I../../lib -I../../lib/user -I. -Wall -W -Wstrict-prototypes -Wmissing-prototypes -Wsystem-headers  -MMD -MF tests/userprog/write-normal.d
 gcc -m32  -Wl,--build-id=none -nostdlib -static -Wl,-T,../../lib/user/user.lds tests/userprog/write-normal.o tests/main.o tests/lib.o lib/user/entry.o libc.a -o tests/userprog/write-normal
 pintos -v -k -T 60 --qemu  --filesys-size=2 -p tests/userprog/write-normal -a write-normal -p ../../tests/userprog/sample.txt -a sample.txt -- -q  -f run write-normal < /dev/null 2> tests/userprog/write-normal.errors > tests/userprog/write-normal.output
@@ -348,11 +374,7 @@ gcc -m32 -c ../../tests/userprog/write-bad-fd.c -o tests/userprog/write-bad-fd.o
 gcc -m32  -Wl,--build-id=none -nostdlib -static -Wl,-T,../../lib/user/user.lds tests/userprog/write-bad-fd.o tests/main.o tests/lib.o lib/user/entry.o libc.a -o tests/userprog/write-bad-fd
 pintos -v -k -T 60 --qemu  --filesys-size=2 -p tests/userprog/write-bad-fd -a write-bad-fd -- -q  -f run write-bad-fd < /dev/null 2> tests/userprog/write-bad-fd.errors > tests/userprog/write-bad-fd.output
 perl -I../.. ../../tests/userprog/write-bad-fd.ck tests/userprog/write-bad-fd tests/userprog/write-bad-fd.result
-FAIL tests/userprog/write-bad-fd
-Kernel panic in run: PANIC at ../../lib/kernel/list.c:84 in list_next(): assertion `is_head (elem) || is_interior (elem)' failed.
-Call stack: 0xc00281fe
-Translation of call stack:
-0xc00281fe: debug_panic (.../../lib/kernel/debug.c:38)
+pass tests/userprog/write-bad-fd
 gcc -m32 -c ../../tests/userprog/exec-arg.c -o tests/userprog/exec-arg.o -g -msoft-float -O -fno-stack-protector -nostdinc -I../.. -I../../lib -I../../lib/user -I. -Wall -W -Wstrict-prototypes -Wmissing-prototypes -Wsystem-headers  -MMD -MF tests/userprog/exec-arg.d
 gcc -m32  -Wl,--build-id=none -nostdlib -static -Wl,-T,../../lib/user/user.lds tests/userprog/exec-arg.o tests/main.o tests/lib.o lib/user/entry.o libc.a -o tests/userprog/exec-arg
 gcc -m32  -Wl,--build-id=none -nostdlib -static -Wl,-T,../../lib/user/user.lds tests/userprog/args.o tests/lib.o lib/user/entry.o libc.a -o tests/userprog/child-args
@@ -371,12 +393,7 @@ gcc -m32  -Wl,--build-id=none -nostdlib -static -Wl,-T,../../lib/user/user.lds t
 pintos -v -k -T 60 --qemu  --filesys-size=2 -p tests/userprog/multi-child-fd -a multi-child-fd -p ../../tests/userprog/sample.txt -a sample.txt -p tests/userprog/child-close -a child-close -- -q  -f run multi-child-fd < /dev/null 2> tests/userprog/multi-child-fd.errors > tests/userprog/multi-child-fd.output
 perl -I../.. ../../tests/userprog/multi-child-fd.ck tests/userprog/multi-child-fd tests/userprog/multi-child-fd.result
 FAIL tests/userprog/multi-child-fd
-Kernel panic in run: PANIC at ../../lib/kernel/list.c:84 in list_next(): assertion `is_head (elem) || is_interior (elem)' failed.
-Call stack: 0xc00281fe 0x804a61f
-Translation of call stack:
-In kernel.o:
-0xc00281fe: debug_panic (.../../lib/kernel/debug.c:38)
-0x0804a61f: (unknown)
+run: TIMEOUT after 61 seconds of wall-clock time - load average: 0.31, 0.20, 0.14
 gcc -m32 -c ../../tests/userprog/rox-simple.c -o tests/userprog/rox-simple.o -g -msoft-float -O -fno-stack-protector -nostdinc -I../.. -I../../lib -I../../lib/user -I. -Wall -W -Wstrict-prototypes -Wmissing-prototypes -Wsystem-headers  -MMD -MF tests/userprog/rox-simple.d
 gcc -m32  -Wl,--build-id=none -nostdlib -static -Wl,-T,../../lib/user/user.lds tests/userprog/rox-simple.o tests/main.o tests/lib.o lib/user/entry.o libc.a -o tests/userprog/rox-simple
 pintos -v -k -T 60 --qemu  --filesys-size=2 -p tests/userprog/rox-simple -a rox-simple -- -q  -f run rox-simple < /dev/null 2> tests/userprog/rox-simple.errors > tests/userprog/rox-simple.output
@@ -556,13 +573,13 @@ pass tests/userprog/read-bad-ptr
 pass tests/userprog/read-boundary
 pass tests/userprog/read-zero
 pass tests/userprog/read-stdout
-FAIL tests/userprog/read-bad-fd
+pass tests/userprog/read-bad-fd
 pass tests/userprog/write-normal
 pass tests/userprog/write-bad-ptr
 pass tests/userprog/write-boundary
 pass tests/userprog/write-zero
 pass tests/userprog/write-stdin
-FAIL tests/userprog/write-bad-fd
+pass tests/userprog/write-bad-fd
 pass tests/userprog/exec-arg
 pass tests/userprog/multi-recurse
 FAIL tests/userprog/multi-child-fd
@@ -591,7 +608,7 @@ pass tests/filesys/base/sm-seq-random
 pass tests/filesys/base/syn-read
 pass tests/filesys/base/syn-remove
 pass tests/filesys/base/syn-write
-9 of 78 tests failed.
+7 of 78 tests failed.
 make[1]: *** [check] Error 1
 make[1]: Leaving directory `/home/vagrant/code/group/pintos/src/userprog/build'
 make: *** [check] Error 2

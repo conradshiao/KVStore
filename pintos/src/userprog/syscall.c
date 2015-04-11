@@ -195,17 +195,24 @@ static int write (int fd, const void *buffer, unsigned size) {
   if (fd == STDOUT_FILENO) {
     putbuf(buffer, size);
     return size;
+  } else if (fd == STDIN_FILENO) {
+    exit(-1);
+    return -1;
   } else {
     lock_acquire(&file_lock);
-    struct file *file = fd_to_file_wrapper(fd)->file;
+    struct file_wrapper *curr = fd_to_file_wrapper(fd);
+    if (curr == NULL)
+      exit(-1);
+    struct file *file = curr->file;
     int bytes_written; // default for error
-    if (file != NULL) {
+    /* if (file != NULL) {
       bytes_written = file_write(file, buffer, size);
     } else {
       lock_release(&file_lock);
       exit(-1); // not sure what to do here?
       return -1;
-    }
+    } */
+    bytes_written = file_write(file, buffer, size);
     lock_release(&file_lock);
     return bytes_written;
   }
@@ -274,6 +281,9 @@ static int read (int fd, void *buffer, unsigned length) {
     size = -1; // or 0? or should I exit? idk
   } else {
     lock_acquire(&file_lock);
+    struct file_wrapper *curr = fd_to_file_wrapper(fd);
+    if (curr == NULL)
+      exit(-1); // our new code here
     size = file_read(fd_to_file_wrapper(fd)->file, buffer, length);
     lock_release(&file_lock);
   }
@@ -351,17 +361,16 @@ fd_to_file_wrapper (int fd_) {
   // return hash_find (&hash_table, &f.hash_elem) == NULL ? NULL :
   //                   hash_entry(e, struct file_wrapper, hash_elem)->file;
   unsigned fd = (unsigned) fd_;
-  struct list my_files = thread_current()->file_wrappers;
+  //struct list my_files = thread_current()->file_wrappers;
   struct list_elem *e;
-  for (e = list_begin(&my_files); e != list_end(&my_files); e = list_next(e)) {
+  for (e = list_begin(&thread_current()->file_wrappers); e != list_end(&thread_current()->file_wrappers);
+       e = list_next(e)) {
     struct file_wrapper *curr = list_entry(e, struct file_wrapper, thread_elem);
     if (fd == curr->fd) {
       return curr;
     }
   }
-  if (1) {
-    printf("uh. it should not hit here. like. ever.\n");
-  }
+   // printf("uh. it should not hit here. like. ever.\n");
   return NULL; // should this ever hit?
 }
 
