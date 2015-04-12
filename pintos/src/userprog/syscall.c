@@ -240,9 +240,9 @@ static bool create (const char *file, unsigned initial_size) { // DONE
   // I don't think you need to lock_acquire here
   if (!file)  // added check
     exit(-1);
-  lock_acquire(&file_lock);
+  //lock_acquire(&file_lock);
   bool success = filesys_create(file, initial_size);
-  lock_release(&file_lock);
+  //lock_release(&file_lock);
   return success;
 }
 
@@ -251,9 +251,9 @@ static bool remove (const char *file) {
   // do I need to free the malloc here? I would need to iterate through all my children for duplicate files right? what about other threads?
   if (!file)  // added check
     exit(-1);
-  lock_acquire(&file_lock);
+  //lock_acquire(&file_lock);
   bool success = filesys_remove(file);
-  lock_release(&file_lock);
+  //lock_release(&file_lock);
   return success;
 }
 

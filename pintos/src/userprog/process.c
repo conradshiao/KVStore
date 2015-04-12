@@ -96,6 +96,12 @@ start_process (void *file_name_)
   exec_status->load_success = success;
   sema_up(&exec_status->loaded); // signal parent in process_execute()
   
+  // our code 
+  struct file* f = filesys_open(file_name);
+  if (f) {
+    file_deny_write(f);
+  }
+
   /* If load failed, quit. */
   palloc_free_page (file_name);
   if (!success) 
@@ -389,7 +395,7 @@ load (const char *cmdline, void (**eip) (void), void **esp)
 
 done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
+  //file_close (file);
   // OUR CODE HERE
   palloc_free_page(cmdline_copy);
   return success;
