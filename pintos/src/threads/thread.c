@@ -470,6 +470,7 @@ init_thread (struct thread *t, const char *name, int priority)
   struct thread *parent = running_thread();
   if (!list_empty(&parent->children))
     t->exec_status = list_entry(list_back(&parent->children), struct exec_status, elem);
+  list_init(&t->file_wrappers);
 #endif
 
   old_level = intr_disable ();
