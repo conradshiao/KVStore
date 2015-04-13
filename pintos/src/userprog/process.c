@@ -303,15 +303,15 @@ load (const char *cmdline, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
-  lock_acquire(&file_lock);
+  //lock_acquire(&file_lock);
   file = filesys_open (file_name);
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", file_name);
       goto done; 
     }
-  file_deny_write(file);
-  t->executable = file;
+  //file_deny_write(file);
+  //t->executable = file;
 
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -399,7 +399,7 @@ done:
   /* We arrive here whether the load is successful or not. */
   //file_close (file);
   // OUR CODE HERE
-  lock_release(&file_lock);
+  //lock_release(&file_lock);
   palloc_free_page(cmdline_copy);
   return success;
 }
