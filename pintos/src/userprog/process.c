@@ -19,6 +19,7 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "threads/malloc.h" // OUR CODE HERE
+#include "userprog/syscall.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -57,9 +58,7 @@ process_execute (const char *file_name)
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (thread_name, PRI_DEFAULT, start_process, fn_copy);
-  // child->tid = tid;
   
-  //sema_down(&child->loaded);
   if (tid == TID_ERROR) {
     palloc_free_page (fn_copy);
   } else {
@@ -97,10 +96,10 @@ start_process (void *file_name_)
   sema_up(&exec_status->loaded); // signal parent in process_execute()
   
   // our code 
-  struct file* f = filesys_open(file_name);
+  /* struct file* f = filesys_open(file_name);
   if (f) {
     file_deny_write(f);
-  }
+  } */
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
@@ -304,12 +303,15 @@ load (const char *cmdline, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
+  lock_acquire(&file_lock);
   file = filesys_open (file_name);
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", file_name);
       goto done; 
     }
+  file_deny_write(file);
+  t->executable = file;
 
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -397,6 +399,7 @@ done:
   /* We arrive here whether the load is successful or not. */
   //file_close (file);
   // OUR CODE HERE
+  lock_release(&file_lock);
   palloc_free_page(cmdline_copy);
   return success;
 }

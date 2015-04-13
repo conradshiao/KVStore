@@ -33,16 +33,13 @@ struct file_wrapper *fd_to_file_wrapper (int fd);
 
 static unsigned curr_fd;
 
-static struct lock file_lock;
 static struct lock fd_lock;
 
 struct file_wrapper
   {
-    // bool closed;
     unsigned fd;
     struct file *file;
     struct list_elem thread_elem;
-    // struct hash_elem hash_elem;
   };
 
 void
@@ -53,25 +50,6 @@ syscall_init (void)
   lock_init(&fd_lock);
   curr_fd = 2;
 }
-
-// enum 
-//   {
-//     SYS_HALT,                   /* Halt the operating system. */
-//     SYS_EXIT,                   /* Terminate this process. */
-//     SYS_EXEC,                   /* Start another process. */
-//     SYS_WAIT,                   /* Wait for a child process to die. */
-//     SYS_CREATE,                 /* Create a file. */
-//     SYS_REMOVE,                 /* Delete a file. */
-//     SYS_OPEN,                   /* Open a file. */
-//     SYS_FILESIZE,               /* Obtain a file's size. */
-//     SYS_READ,                   /* Read from a file. */
-//     SYS_WRITE,                  /* Write to a file. */
-//     SYS_SEEK,                   /* Change position in a file. */
-//     SYS_TELL,                   /* Report current position in a file. */
-//     SYS_CLOSE,                  /* Close a file. */
-//     SYS_NULL,                   /* Returns arg incremented by 1 */
-
-//   };
 
 static void
 syscall_handler (struct intr_frame *f) 
@@ -132,7 +110,6 @@ syscall_handler (struct intr_frame *f)
     case SYS_OPEN: {
       verify_args(args, 1);
       f->eax = open(user_to_kernel((void *) args[1]));
-      // struct file *file = file_open (struct inode *);
       break;
     }
 
@@ -156,7 +133,6 @@ syscall_handler (struct intr_frame *f)
 
     case SYS_TELL: {
       verify_args(args, 1);
-      // f->eax = file_tell (struct file *);
       f->eax = tell(args[1]);
       break;
     }
@@ -164,7 +140,6 @@ syscall_handler (struct intr_frame *f)
     case SYS_CLOSE: {
       verify_args(args, 1);
       close(args[1]);
-      // file_close (struct file *);
       break;
     }
   }
@@ -176,12 +151,7 @@ void exit (int status) {
   printf("%s: exit(%d)\n", thread_current()->name, status);
   struct thread *curr = thread_current();
   curr->exec_status->exit_code = status;
-  // struct list_elem *e = list_begin(&curr->file_wrappers);
-  // while (!list_empty(&curr->file_wrappers)) {
-  //   struct file_wrapper *temp = list_entry(e, struct file_wrapper, thread_elem);
-  //   e = list_remove(e);
-  //   free(temp);
-  // }
+  
   struct list_elem *e;
   while (!list_empty(&curr->file_wrappers)) {
     e = list_begin(&curr->file_wrappers);
@@ -208,38 +178,32 @@ static int exec (const char *cmd_line) {
 /* Syscall handler for when a syscall write is invoked. */
 static int write (int fd, const void *buffer, unsigned size) {
   // const void *buffer = (void *) user_to_kernel((const void *) argv[1]);
+  int bytes_written; 
   if (fd == STDOUT_FILENO) {
     putbuf(buffer, size);
-    return size;
+    bytes_written = size;
   } else if (fd == STDIN_FILENO) {
     exit(-1);
-    return -1;
+    bytes_written = -1;
   } else {
     lock_acquire(&file_lock);
     struct file_wrapper *curr = fd_to_file_wrapper(fd);
-    if (!curr) // added check
-      exit(-1);
-    struct file *file = curr->file;
-    int bytes_written; // default for error
-    /* if (file != NULL) {
-      bytes_written = file_write(file, buffer, size);
-    } else {
+    if (!curr) { // added check
       lock_release(&file_lock);
-      exit(-1); // not sure what to do here?
-      return -1;
-    } */
+      exit(-1);
+      bytes_written = -1;
+    }
+    struct file *file = curr->file;
     bytes_written = file_write(file, buffer, size);
     lock_release(&file_lock);
-    return bytes_written;
   }
+  return bytes_written;
 }
 
 
 /* Syscall handler for when a syscall create is invoked. */
 static bool create (const char *file, unsigned initial_size) { // DONE
   // I don't think you need to lock_acquire here
-  if (!file)  // added check
-    exit(-1);
   //lock_acquire(&file_lock);
   bool success = filesys_create(file, initial_size);
   //lock_release(&file_lock);
@@ -249,8 +213,6 @@ static bool create (const char *file, unsigned initial_size) { // DONE
 /* Syscall handler for when a syscall remove is invoked. */
 static bool remove (const char *file) {
   // do I need to free the malloc here? I would need to iterate through all my children for duplicate files right? what about other threads?
-  if (!file)  // added check
-    exit(-1);
   //lock_acquire(&file_lock);
   bool success = filesys_remove(file);
   //lock_release(&file_lock);
@@ -268,13 +230,11 @@ static int open (const char *file_) { // DONE
   struct file_wrapper *f = (struct file_wrapper *) malloc(sizeof(struct file_wrapper));
   lock_acquire(&file_lock);
   f->file = file;
-  // f->closed = false;
   list_push_back(&thread_current()->file_wrappers, &f->thread_elem); // README: list_insert for more efficiency
   lock_release(&file_lock);
   lock_acquire(&fd_lock);
   f->fd = curr_fd++;
   lock_release(&fd_lock);
-  // hash_insert(&hash_table, &f->hash_elem);
   return f->fd;
 }
 
@@ -299,13 +259,6 @@ static int read (int fd, void *buffer, unsigned length) {  // FIXME
       buffer_copy[i] = input_getc();
     size = length;
   } else if (fd == STDOUT_FILENO) {
-    // printf("I'm in read... but. what. this shouldn't be happening doe. I think?\n");
-    // exit(-1);
-    // return -1; // actually this should be what we're returning i think
-    // exit(0);
-    // size = -1; // won't hit here
-    // NOTE README: this case does happen in test. Either we exit(-1) or we simply return 0...
-    // exit(-1);
     size = -1; // or 0? or should I exit? idk
   } else {
     lock_acquire(&file_lock);
@@ -389,13 +342,7 @@ void* user_to_kernel (void *ptr) {
 
 struct file_wrapper *
 fd_to_file_wrapper (int fd_) {
-  // struct file_wrapper f;
-  // struct hash_elem *e;
-  // f.fd = fd;
-  // return hash_find (&hash_table, &f.hash_elem) == NULL ? NULL :
-  //                   hash_entry(e, struct file_wrapper, hash_elem)->file;
   unsigned fd = (unsigned) fd_;
-  //struct list my_files = thread_current()->file_wrappers;
   struct list_elem *e;
   for (e = list_begin(&thread_current()->file_wrappers); e != list_end(&thread_current()->file_wrappers);
        e = list_next(e)) {
