@@ -126,6 +126,7 @@ struct thread
     struct exec_status *exec_status;    /* This process’s execution state */                         
     struct list children;               /* Execution status of children */
     struct list file_wrappers;          /* List of file_wrappers for use in syscall.c */
+    struct file* executable;
 
 #endif
 

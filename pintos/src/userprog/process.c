@@ -19,9 +19,7 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "threads/malloc.h" // OUR CODE HERE
-
-// OUR CODE HERE
-#define MAX_ARGS 128 // DON'T CHANGE THIS YET IT BREAKS IF YOU DO: I think we're overloading stack with our huge arrays and overflowing a page or something
+#include "userprog/syscall.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -60,9 +58,7 @@ process_execute (const char *file_name)
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (thread_name, PRI_DEFAULT, start_process, fn_copy);
-  // child->tid = tid;
   
-  //sema_down(&child->loaded);
   if (tid == TID_ERROR) {
     palloc_free_page (fn_copy);
   } else {
@@ -99,6 +95,12 @@ start_process (void *file_name_)
   exec_status->load_success = success;
   sema_up(&exec_status->loaded); // signal parent in process_execute()
   
+  // our code 
+  /* struct file* f = filesys_open(file_name);
+  if (f) {
+    file_deny_write(f);
+  } */
+
   /* If load failed, quit. */
   palloc_free_page (file_name);
   if (!success) 
@@ -301,12 +303,15 @@ load (const char *cmdline, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
+  // lock_acquire(&file_lock);
   file = filesys_open (file_name);
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", file_name);
       goto done; 
     }
+  file_deny_write(file);
+  t->executable = file;
 
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -392,8 +397,9 @@ load (const char *cmdline, void (**eip) (void), void **esp)
 
 done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
+  //file_close (file);
   // OUR CODE HERE
+  lock_release(&file_lock);
   palloc_free_page(cmdline_copy);
   return success;
 }
@@ -531,23 +537,47 @@ setup_stack (void **esp, char *cmdline)
 static void
 parse_and_load_cmdline(char *cmdline, void **esp)
 {
-  // OUR CODE HERE
-  *esp = PHYS_BASE;
+	// OUR CODE HERE
+  char *fn_copy = palloc_get_page (0);
+  if (fn_copy == NULL) {
+    printf("couldn't get palloc in parse_and_load\n");
+    return;
+  }
+  int max_args = 0;
+  strlcpy(fn_copy, cmdline, PGSIZE);
+  char *token1, *save_ptr1;
+  for (token1 = strtok_r(fn_copy, " ", &save_ptr1); token1 != NULL;
+       token1 = strtok_r(NULL, " ", &save_ptr1))
+  {
+    if (++max_args >= PGSIZE) break;
+  }
+  palloc_free_page(fn_copy);
+  
+	*esp = PHYS_BASE;
   char *token, *save_ptr;
-  char *argv[MAX_ARGS];
+  char **argv = (char **) malloc(max_args * sizeof(char *));
+	if (argv == NULL) {
+		printf("argv uh oh malloc parse_and...\n");
+		return;
+	}
   int argc = 0;
+  int curr_size = 0; 
 
   /* Parsing command line and storing into array. */
   for (token = strtok_r(cmdline, " ", &save_ptr); token != NULL;
        token = strtok_r(NULL, " ", &save_ptr))
     {
+      curr_size += strlen(token) + 1;
+      if (curr_size > PGSIZE) break;
       argv[argc++] = token;
-      // argv[argc] = token;
-      // argc++;
     }
 
   /* Stuffing in the argument strings on command line to stack. */
-  uint32_t addresses[MAX_ARGS];
+  uint32_t *addresses = (uint32_t *) malloc(max_args * sizeof(uint32_t *));
+	if (addresses == NULL) {
+		printf("addresses uh oh malloc parse_...\n");
+		return;
+	}
   int i;
   for (i = argc - 1; i >= 0; i--) {
     int arg_len = strlen(argv[i]) + 1; // + 1 for the ending null terminator
@@ -582,7 +612,11 @@ parse_and_load_cmdline(char *cmdline, void **esp)
 
   /* pushing dummy return address here */
   *esp -= sizeof(void *);
-  memcpy(*esp, &argv, sizeof(void *)); // garbage here, so anything is cool 
+  memcpy(*esp, &argv, sizeof(void *)); // garbage here, so anything is cool
+
+	/* Freeing our malloc'ed data structures here. */
+  free(argv);
+  free(addresses); 
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel
@@ -604,4 +638,3 @@ install_page (void *upage, void *kpage, bool writable)
   return (pagedir_get_page (t->pagedir, upage) == NULL
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
 }
->>>>>>> 3d9eb91d46d60a332a41ba068a6c2ad86d9fc05f
