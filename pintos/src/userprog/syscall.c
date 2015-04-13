@@ -182,7 +182,7 @@ static int write (int fd, const void *buffer, unsigned size) {
     bytes_written = size;
   } else if (fd == STDIN_FILENO) {
     exit(-1);
-    bytes_written = -1;
+    bytes_written = -1; // get rid of this line when all tests pass conrad
   } else {
     struct file_wrapper *curr = fd_to_file_wrapper(fd);
     if (!curr) { // added check
