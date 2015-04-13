@@ -170,7 +170,10 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
-  
+ 
+  if (cur->executable)
+    file_allow_write(cur->executable);
+
   // OUR CODE HERE: Free children
   struct list_elem *e = list_begin(&cur->children);
   while (!list_empty(&cur->children)) {
@@ -310,8 +313,8 @@ load (const char *cmdline, void (**eip) (void), void **esp)
       printf ("load: %s: open failed\n", file_name);
       goto done; 
     }
-  //file_deny_write(file);
-  //t->executable = file;
+  file_deny_write(file);
+  t->executable = file;
 
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
