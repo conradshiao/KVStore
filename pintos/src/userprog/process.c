@@ -19,7 +19,6 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "threads/malloc.h" // OUR CODE HERE
-#include "userprog/syscall.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -166,7 +165,8 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
- 
+
+  // OUR CODE HERE: Allow the executable to be modified again
   if (cur->executable != NULL)
     file_allow_write(cur->executable);
 
@@ -308,7 +308,7 @@ load (const char *cmdline, void (**eip) (void), void **esp)
       printf ("load: %s: open failed\n", file_name);
       goto done; 
     }
-  // OUR CODE HERE
+  // OUR CODE HERE: Deny writing to this currently open and running executable
   file_deny_write(file);
   t->executable = file;
 
@@ -387,7 +387,6 @@ load (const char *cmdline, void (**eip) (void), void **esp)
   /* Set up stack. */
   if (!setup_stack (esp, (char *) cmdline)) // OUR CODE HERE
     goto done;
-  // hex_dump(0, *esp, 200, true);
 
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;
@@ -396,6 +395,7 @@ load (const char *cmdline, void (**eip) (void), void **esp)
 
 done:
   /* We arrive here whether the load is successful or not. */
+  // OUR CODE HERE
   palloc_free_page(cmdline_copy);
   return success;
 }
@@ -533,45 +533,32 @@ setup_stack (void **esp, char *cmdline)
 static void
 parse_and_load_cmdline(char *cmdline, void **esp)
 {
-	// OUR CODE HERE
-  char *fn_copy = palloc_get_page (0);
-  if (fn_copy == NULL) {
-    printf("couldn't get palloc in parse_and_load\n");
+  // OUR CODE HERE
+  *esp = PHYS_BASE;
+  int argc = 0;
+  int curr_size = 0;
+  char *save_ptr, *token;
+
+  char **argv = palloc_get_page(0);
+  if (argv == NULL) {
     return;
   }
-  int max_args = 0;
-  strlcpy(fn_copy, cmdline, PGSIZE);
-  char *token1, *save_ptr1;
-  for (token1 = strtok_r(fn_copy, " ", &save_ptr1); token1 != NULL;
-       token1 = strtok_r(NULL, " ", &save_ptr1))
-  {
-    if (++max_args >= PGSIZE) break;
-  }
-  palloc_free_page(fn_copy);
-  
-	*esp = PHYS_BASE;
-  char *token, *save_ptr;
-  char **argv = (char **) malloc(max_args * sizeof(char *));
-	if (argv == NULL) {
-		printf("argv uh oh malloc parse_and...\n");
-		return;
-	}
-  int argc = 0;
-  int curr_size = 0; 
 
   /* Parsing command line and storing into array. */
   for (token = strtok_r(cmdline, " ", &save_ptr); token != NULL;
        token = strtok_r(NULL, " ", &save_ptr))
     {
       curr_size += strlen(token) + 1;
-      if (curr_size > PGSIZE) break;
-      argv[argc++] = token;
+      if (curr_size > PGSIZE) {
+        break;
+      } else {
+        argv[argc++] = token;
+      }
     }
 
   /* Stuffing in the argument strings on command line to stack. */
-  uint32_t *addresses = (uint32_t *) malloc(max_args * sizeof(uint32_t *));
+  uint32_t *addresses = (uint32_t *) malloc(argc * sizeof(uint32_t *));
 	if (addresses == NULL) {
-		printf("addresses uh oh malloc parse_...\n");
 		return;
 	}
   int i;
@@ -611,7 +598,7 @@ parse_and_load_cmdline(char *cmdline, void **esp)
   memcpy(*esp, &argv, sizeof(void *)); // garbage here, so anything is cool
 
 	/* Freeing our malloc'ed data structures here. */
-  free(argv);
+  palloc_free_page(argv);
   free(addresses); 
 }
 

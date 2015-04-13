@@ -185,7 +185,7 @@ static int write (int fd, const void *buffer, unsigned size) {
     exit(-1);
   } else {
     struct file_wrapper *curr = fd_to_file_wrapper(fd);
-    if (!curr) { // added check
+    if (!curr) {
       exit(-1);
     } else {
       struct file *file = curr->file;
@@ -200,25 +200,19 @@ static int write (int fd, const void *buffer, unsigned size) {
 
 /* Syscall handler for when a syscall create is invoked. */
 static bool create (const char *file, unsigned initial_size) { // DONE
-  // I don't think you need to lock_acquire here
-  //lock_acquire(&file_lock);
-  bool success = filesys_create(file, initial_size);
-  //lock_release(&file_lock);
-  return success;
+  return filesys_create(file, initial_size);
 }
 
 /* Syscall handler for when a syscall remove is invoked. */
 static bool remove (const char *file) {
-  // do I need to free the malloc here? I would need to iterate through all my children for duplicate files right? what about other threads?
-  //lock_acquire(&file_lock);
+  lock_acquire(&file_lock);
   bool success = filesys_remove(file);
-  //lock_release(&file_lock);
+  lock_release(&file_lock);
   return success;
 }
 
 /* Syscall handler for when a syscall open is invoked. */
 static int open (const char *file_) { // DONE
-  // README: WHAT HAPPENS WHEN YOU TRY TO OPEN A CLOSED FILE?
   lock_acquire(&file_lock);
   struct file *file = filesys_open(file_);
   lock_release(&file_lock);
@@ -234,9 +228,9 @@ static int open (const char *file_) { // DONE
 }
 
 /* Syscall handler for when a syscall filesize is invoked. */
-static int filesize (int fd) { // DONE
+static int filesize (int fd) {
   struct file_wrapper *curr = fd_to_file_wrapper(fd);
-  if (!curr) // added check
+  if (!curr)
     exit(-1);
   lock_acquire(&file_lock);
   int size = file_length (curr->file);
@@ -245,7 +239,7 @@ static int filesize (int fd) { // DONE
 }
 
 /* Syscall handler for when a syscall read is invoked. */
-static int read (int fd, void *buffer, unsigned length) {  // FIXME
+static int read (int fd, void *buffer, unsigned length) {
   int size = -1;
   if (fd == STDIN_FILENO) {
     uint8_t *buffer_copy = (uint8_t *) buffer;
@@ -258,7 +252,7 @@ static int read (int fd, void *buffer, unsigned length) {  // FIXME
   } else {
     struct file_wrapper *curr = fd_to_file_wrapper(fd);
     if (!curr)
-      exit(-1); // added check
+      exit(-1);
     lock_acquire(&file_lock);
     size = file_read(curr->file, buffer, length);
     lock_release(&file_lock);
@@ -269,7 +263,7 @@ static int read (int fd, void *buffer, unsigned length) {  // FIXME
 /* Syscall handler for when a syscall seek is invoked. */
 static void seek (int fd, unsigned position) { // DONE
   struct file_wrapper *curr = fd_to_file_wrapper(fd);
-  if (!curr) // added check
+  if (!curr)
     exit(-1);
   lock_acquire(&file_lock);
   file_seek (curr->file, position);
@@ -277,9 +271,9 @@ static void seek (int fd, unsigned position) { // DONE
 }
 
 /* Syscall handler for when a syscall tell is invoked. */
-static unsigned tell (int fd) { // DONE
+static unsigned tell (int fd) {
   struct file_wrapper *curr = fd_to_file_wrapper(fd);
-  if (!curr) // added check
+  if (!curr)
     exit(-1);
   lock_acquire(&file_lock);
   unsigned position = file_tell(curr->file);
@@ -293,7 +287,7 @@ static void close (int fd) {
     exit(-1);
   }
   struct file_wrapper *curr = fd_to_file_wrapper(fd);
-  if (!curr) // added check
+  if (!curr)
     exit(-1);
   lock_acquire(&file_lock);
   list_remove(&curr->thread_elem);
@@ -322,15 +316,16 @@ void verify_args(uint32_t *ptr, int argc) {
 
 /* convert the user space pointer into kernel one */
 void* user_to_kernel (void *ptr) {
-  /* README: the line of code below is NOT run when we call verify_args()
-     because this ptr is the DATA at that address, and not address itself */
-  verify_user_ptr((const void *) ptr); // have to verify the pointer you're transferring is valid also.
+  verify_user_ptr((const void *) ptr); // verify pointer you're converting is valid also.
   void* kernel_p = pagedir_get_page(thread_current()->pagedir, (const void *) ptr);
   if (!kernel_p)
     exit(-1);
   return kernel_p;
 }
 
+/* Converts the given file descriptor to the associated file_wrapper found on
+   this thread's list of file_wrappers. Returns NULL if no such file_wrapper
+   is found. */
 struct file_wrapper *
 fd_to_file_wrapper (int fd_) {
   unsigned fd = (unsigned) fd_;
