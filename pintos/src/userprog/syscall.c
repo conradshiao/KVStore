@@ -34,6 +34,7 @@ struct file_wrapper *fd_to_file_wrapper (int fd);
 static unsigned curr_fd;
 
 static struct lock fd_lock;
+static struct lock file_lock;
 
 struct file_wrapper
   {
@@ -182,7 +183,6 @@ static int write (int fd, const void *buffer, unsigned size) {
     bytes_written = size;
   } else if (fd == STDIN_FILENO) {
     exit(-1);
-    bytes_written = -1; // get rid of this line when all tests pass conrad
   } else {
     struct file_wrapper *curr = fd_to_file_wrapper(fd);
     if (!curr) { // added check
@@ -226,7 +226,7 @@ static int open (const char *file_) { // DONE
     return -1;
   struct file_wrapper *f = (struct file_wrapper *) malloc(sizeof(struct file_wrapper));
   f->file = file;
-  list_push_back(&thread_current()->file_wrappers, &f->thread_elem); // README: list_insert for more efficiency
+  list_push_back(&thread_current()->file_wrappers, &f->thread_elem);
   lock_acquire(&fd_lock);
   f->fd = curr_fd++;
   lock_release(&fd_lock);
@@ -247,14 +247,14 @@ static int filesize (int fd) { // DONE
 /* Syscall handler for when a syscall read is invoked. */
 static int read (int fd, void *buffer, unsigned length) {  // FIXME
   int size = -1;
-  if (fd == STDIN_FILENO) { // i don't think i need to lock_acquire and lock_release here
+  if (fd == STDIN_FILENO) {
     uint8_t *buffer_copy = (uint8_t *) buffer;
     unsigned i;
     for (i = 0; i < length; i++)
       buffer_copy[i] = input_getc();
     size = length;
   } else if (fd == STDOUT_FILENO) {
-    size = -1; // or 0? or should I exit? idk
+    size = -1;
   } else {
     struct file_wrapper *curr = fd_to_file_wrapper(fd);
     if (!curr)
@@ -342,5 +342,5 @@ fd_to_file_wrapper (int fd_) {
       return curr;
     }
   }
-  return NULL; // should this ever hit?
+  return NULL;
 }

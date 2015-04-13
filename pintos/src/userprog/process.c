@@ -54,11 +54,13 @@ process_execute (const char *file_name)
   sema_init(&child->dead, 0);
   child->ref_cnt = 2;
   child->load_success = false;
-  list_push_back(&thread_current()->children, &child->elem); // pushing this exec_status onto parent's list of children
-
+  /*  pushing this exec_status onto parent's list of children */
+  list_push_back(&thread_current()->children, &child->elem);
+ 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (thread_name, PRI_DEFAULT, start_process, fn_copy);
-  
+
+  // OUR CODE HERE 
   if (tid == TID_ERROR) {
     palloc_free_page (fn_copy);
   } else {
@@ -95,12 +97,6 @@ start_process (void *file_name_)
   exec_status->load_success = success;
   sema_up(&exec_status->loaded); // signal parent in process_execute()
   
-  // our code 
-  /* struct file* f = filesys_open(file_name);
-  if (f) {
-    file_deny_write(f);
-  } */
-
   /* If load failed, quit. */
   palloc_free_page (file_name);
   if (!success) 
@@ -171,7 +167,7 @@ process_exit (void)
       pagedir_destroy (pd);
     }
  
-  if (cur->executable)
+  if (cur->executable != NULL)
     file_allow_write(cur->executable);
 
   // OUR CODE HERE: Free children
@@ -306,13 +302,13 @@ load (const char *cmdline, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
-  //lock_acquire(&file_lock);
   file = filesys_open (file_name);
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", file_name);
       goto done; 
     }
+  // OUR CODE HERE
   file_deny_write(file);
   t->executable = file;
 
@@ -400,9 +396,6 @@ load (const char *cmdline, void (**eip) (void), void **esp)
 
 done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
-  // OUR CODE HERE
-  //lock_release(&file_lock);
   palloc_free_page(cmdline_copy);
   return success;
 }
