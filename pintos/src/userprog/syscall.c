@@ -159,7 +159,6 @@ void exit (int status) {
     close(list_entry(e, struct file_wrapper, thread_elem)->fd);
   }
   thread_exit();
-  // README: might need to save exit code on f->eax here when user_to_kernel fails??
 }
 
 /* Method for when we want to invoke a syscall wait. */ 
