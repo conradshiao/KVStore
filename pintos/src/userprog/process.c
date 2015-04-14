@@ -539,6 +539,7 @@ parse_and_load_cmdline(char *cmdline, void **esp)
   int curr_size = 0;
   char *save_ptr, *token;
 
+  /* Get arguments to fit on a single page. */
   char **argv = palloc_get_page(0);
   if (argv == NULL) {
     return;
