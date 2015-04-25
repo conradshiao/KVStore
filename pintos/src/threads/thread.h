@@ -120,13 +120,13 @@ struct thread
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
-    uint32_t *pagedir;                  /* Page directory. */
+    uint32_t *pagedir;                /* Page directory. */
     
     // OUR CODE HERE
-    struct exec_status *exec_status;    /* This process’s execution state */                         
-    struct list children;               /* Execution status of children */
-    struct list file_wrappers;          /* List of file_wrappers for use in syscall.c */
-    struct file* executable;
+    struct exec_status *exec_status;  /* This process’s execution state */                         
+    struct list children;             /* Execution status of children */
+    struct list file_wrappers;        /* This process's associated files. */
+    struct file* executable;          /* This process's open executable. */
 
 #endif
 
