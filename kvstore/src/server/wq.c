@@ -6,6 +6,7 @@
 /* Initializes a work queue WQ. Sets up any necessary synchronization constructs. */
 void wq_init(wq_t *wq) {
   wq->head = NULL;
+  // sema_init(wq->sema, 0);
 }
 
 /* Remove an item from the WQ. Currently, this immediately attempts
@@ -17,8 +18,10 @@ void wq_init(wq_t *wq) {
  * return it. */
 void *wq_pop(wq_t *wq) {
   void *job;
-  if (wq->head == NULL)
+  if (wq->head == NULL) {
+    // sema_down(&wq->sema);
     return NULL;
+  }
   job = wq->head->item;
   DL_DELETE(wq->head,wq->head);
   return job;
@@ -32,4 +35,5 @@ void wq_push(wq_t *wq, void *item) {
   wq_item_t *wq_item = calloc(1, sizeof(wq_item_t));
   wq_item->item = item;
   DL_APPEND(wq->head, wq_item);
+  // sema_up(wq->sema);
 }

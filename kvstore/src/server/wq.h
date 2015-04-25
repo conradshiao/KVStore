@@ -19,6 +19,8 @@ typedef struct wq_item {
 
 typedef struct wq {
   wq_item_t *head;         /* The head of the list of items. */
+  // OUR CODE HERE
+  // struct semaphore sema;
 } wq_t;
 
 

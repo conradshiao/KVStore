@@ -17,35 +17,26 @@ int kvcacheset_init(kvcacheset_t *cacheset, unsigned int elem_per_set) {
   if ((ret = pthread_rwlock_init(&cacheset->lock, NULL)) < 0)
     return ret;
   cacheset->num_entries = 0;
+  cacheset->entries = NULL;
   return 0;
 }
 
-// OUR CODE HERE: not rlly. just a comment. kvcacheentry is not used anywhere in code, so
-// obviously we gotta change up the kcvacheset_t data structure to take in either an array
-// or pointers to kvcachentries. 
 
 /* Get the entry corresponding to KEY from CACHESET. Returns 0 if successful,
  * else returns a negative error code. If successful, populates VALUE with a
  * malloced string which should later be freed. */
 int kvcacheset_get(kvcacheset_t *cacheset, char *key, char **value) {
   // OUR CODE HERE
-  long index = hash(key);
-  if (index >= cacheset->num_entries) {
-    return -1; // i need to look up what type of error this rlly is in kvconstants.h
-  }
-  // does the comment imply that i need to malloc? and if so.. where do we free? And do they already do that for us?
   pthread_rwlock_rdlock(cacheset->lock);
-  /* I think this is whats happening.
-  Value is char ** because C is pass by copy, so we rlly care about *value (what value points to)
-  We malloc *value (this part is iffy), then copy the corresponding value found in the
-  cache into this malloced value, and return? Idk if i'm right*/
-  char *wanted_value = cacheset->entries[index]->value;
-  // do we malloc *value or value itself? uh. idk. i think maybe 2nd option?
-  value = (char **) malloc(sizeof(char **)); // uh. man. i rlly don't know which one we malloc
-  value = wanted_value; // we'll string copy this somewhere in the malloc'd portion
+  kvcacheentry *e;
+  HASH_FIND_STR(cacheset->entries, key, e);
+  e->value = (char*) malloc((strlen(*value)+1)*sizeof(char));
+  strcpy(e->value, *value);
   pthread_rwlock_unlock(cacheset->lock);
+  if (e == NULL) {
+    return ERRNOKEY;
+  }
   return 0;
-  // return -1;
 }
 
 /* Add the given KEY, VALUE pair to CACHESET. Returns 0 if successful, else
@@ -53,43 +44,50 @@ int kvcacheset_get(kvcacheset_t *cacheset, char *key, char **value) {
  * exceed CACHESET->elem_per_set total entries. */
 int kvcacheset_put(kvcacheset_t *cacheset, char *key, char *value) {
   // OUR CODE HERE
-  long index = hash(key);
-  if (index >= cacheset->num_entries) {
-    return -1; // i need to look up what type of error this rlly is in kvconstants.h
-  }
-  // i think we might need to check if these locks and unlocks were actually successful (on all functions obviously)
   pthread_rwlock_wrlock(cacheset->lock);
-  // but. but. how do we know which index key should map to. What if they coincide. what.
-  // do we only increment if they don't coincide. i'm confused now.
+  
   if (cacheset->num_entries < cacheset->elem_per_set) {
     cacheset->num_entries++;
+  } else {
+    // evict element
   }
+
+  kvcacheentry *e;
+  HASH_FIND_STR(cacheset->entries, key, e);
+  if (e == NULL) {
+    e = (struct kvcacheentry *) malloc(sizeof(struct kvcacheentry));
+    e->key = key;
+    // e->refcnt = 0;
+    HASH_ADD_STR(cacheset->entries, key, e);
+  }
+  // do we need to malloc?
+  strcpy(e->value, *value);
+  
   pthread_rwlock_unlock(cacheset->lock);
   return 0;
-  // return -1;
+  // return -1;  
 }
 
 /* Deletes the entry corresponding to KEY from CACHESET. Returns 0 if
  * successful, else returns a negative error code. */
 int kvcacheset_del(kvcacheset_t *cacheset, char *key) {
   // OUR CODE HERE
-  long index = hash(key);
-  if (index >= cacheset->num_entries) {
-    return -1; // i need to look up what type of error this rlly is in kvconstants.h
-  }
-  pthread_rwlock_wrlock(cacheset->lock);
   if (cacheset->num_entries == 0) {
-    // i don't think it'll ever hit this case. but just in case i guess? this case should
-    // be filtered initially outside the locks, if need be
-  } else {
-    // do some more stuff here
-    cacheset->num_entries--;
+    return -1;
+  } 
+  pthread_rwlock_wrlock(cacheset->lock);
+  cacheset->num_entries--;
+  kvcacheentry *e;
+  HASH_FIND_STR(cacheset->entries, key, e);
+  if (e == NULL) {
+    return ERRNOKEY;
   }
+  HASH_DEL(cacheset->entries, e);
+  free(e);
   pthread_rwlock_unlock(cacheset->lock);
-  return 0;
-  // return -1;
-}
+  }
 
 /* Completely clears this cache set. For testing purposes. */
 void kvcacheset_clear(kvcacheset_t *cacheset) {
+  HASH_CLEAR(hh, cacheset->entries);
 }

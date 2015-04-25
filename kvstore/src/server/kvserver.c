@@ -53,32 +53,40 @@ int kvserver_register_master(kvserver_t *server, int sockfd) {
  * be free()d.  If the KEY is in cache, take the value from there. Otherwise,
  * go to the store and update the value in the cache. */
 int kvserver_get(kvserver_t *server, char *key, char **value) {
-  return -1;
+  if (kvcache_get(server->cache, key, value) == 0) {
+    return 0;
+  return kvstore_get(server->store, key, value);
 }
 
 /* Checks if the given KEY, VALUE pair can be inserted into this server's
  * store. Returns 0 if it can, else a negative error code. */
 int kvserver_put_check(kvserver_t *server, char *key, char *value) {
-  return -1;
+  return kv_store_put_check(server->store, key, value);
 }
 
 /* Inserts the given KEY, VALUE pair into this server's store and cache. Access
  * to the cache should be concurrent if the keys are in different cache sets.
  * Returns 0 if successful, else a negative error code. */
 int kvserver_put(kvserver_t *server, char *key, char *value) {
+  // how do i check if keys are in different cache sets? 
+  kvcache_put(server->cache, key, value);
+  kvstore_put(server->store, key, value);
   return -1;
 }
 
 /* Checks if the given KEY can be deleted from this server's store.
  * Returns 0 if it can, else a negative error code. */
 int kvserver_del_check(kvserver_t *server, char *key) {
-  return -1;
+  return kvstore_del_check(server->store, key);
 }
 
 /* Removes the given KEY from this server's store and cache. Access to the
  * cache should be concurrent if the keys are in different cache sets. Returns
  * 0 if successful, else a negative error code. */
 int kvserver_del(kvserver_t *server, char *key) {
+  // how do i check if keys are in differet cache sets?
+  kvcache_del(server->cache, key);
+  kvstore_del(server->store, key);
   return -1;
 }
 
