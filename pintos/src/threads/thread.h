@@ -98,7 +98,7 @@ struct exec_status
    an assertion failure in thread_current(), which checks that
    the `magic' member of the running thread's `struct thread' is
    set to THREAD_MAGIC.  Stack overflow will normally change this
-   value, triggering the assertion. */
+   value, triggering the assertion. 
 /* The `elem' member has a dual purpose.  It can be an element in
    the run queue (thread.c), or it can be an element in a
    semaphore wait list (synch.c).  It can be used these two ways

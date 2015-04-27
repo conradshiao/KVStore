@@ -22,6 +22,7 @@ struct kvcacheentry {
   char *key;                      /* The entry's key. */
   char *value;                    /* The entry's value. */
   bool refbit;                    /* Used to determine if this entry has been used. */
+  UT_hash_handle hh;              /* Handle to be able to use uthash methods. */
 };
 
 /* A KVCacheSet. */
@@ -30,7 +31,7 @@ typedef struct {
   pthread_rwlock_t lock;          /* The lock which can be used to lock this set. */
   int num_entries;                /* The current number of entries in this set. */
   // OUR CODE HERE
-  struct kvcacheentry entries[elem_per_set]; // Entries found in this KVCacheSet
+  struct kvcacheentry *entries;   /* The set of kvcacheentries for this cache set. */
 } kvcacheset_t;
 
 int kvcacheset_init(kvcacheset_t *, unsigned int elem_per_set);

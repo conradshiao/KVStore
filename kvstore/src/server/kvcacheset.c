@@ -5,6 +5,9 @@
 #include "utlist.h"
 #include "kvconstants.h"
 #include "kvcacheset.h"
+// OUR CODE HERE
+#include <stdlib.h>
+#include <string.h>
 
 /* Initializes CACHESET to hold a maximum of ELEM_PER_SET elements.
  * ELEM_PER_SET must be at least 2.
@@ -17,35 +20,29 @@ int kvcacheset_init(kvcacheset_t *cacheset, unsigned int elem_per_set) {
   if ((ret = pthread_rwlock_init(&cacheset->lock, NULL)) < 0)
     return ret;
   cacheset->num_entries = 0;
+  cacheset->entries = NULL;
   return 0;
 }
 
-// OUR CODE HERE: not rlly. just a comment. kvcacheentry is not used anywhere in code, so
-// obviously we gotta change up the kcvacheset_t data structure to take in either an array
-// or pointers to kvcachentries. 
 
 /* Get the entry corresponding to KEY from CACHESET. Returns 0 if successful,
  * else returns a negative error code. If successful, populates VALUE with a
  * malloced string which should later be freed. */
 int kvcacheset_get(kvcacheset_t *cacheset, char *key, char **value) {
   // OUR CODE HERE
-  long index = hash(key);
-  if (index >= cacheset->num_entries) {
-    return -1; // i need to look up what type of error this rlly is in kvconstants.h
+  struct kvcacheentry *e;
+ 
+  pthread_rwlock_rdlock(&cacheset->lock);
+  HASH_FIND_STR(cacheset->entries, key, e);
+  pthread_rwlock_unlock(&cacheset->lock);
+
+  if (e == NULL) {
+    return ERRNOKEY;
   }
-  // does the comment imply that i need to malloc? and if so.. where do we free? And do they already do that for us?
-  pthread_rwlock_rdlock(cacheset->lock);
-  /* I think this is whats happening.
-  Value is char ** because C is pass by copy, so we rlly care about *value (what value points to)
-  We malloc *value (this part is iffy), then copy the corresponding value found in the
-  cache into this malloced value, and return? Idk if i'm right*/
-  char *wanted_value = cacheset->entries[index]->value;
-  // do we malloc *value or value itself? uh. idk. i think maybe 2nd option?
-  value = (char **) malloc(sizeof(char **)); // uh. man. i rlly don't know which one we malloc
-  value = wanted_value; // we'll string copy this somewhere in the malloc'd portion
-  pthread_rwlock_unlock(cacheset->lock);
+
+  *value = (char *) malloc((strlen(e->value) + 1) * sizeof(char));
+  strcpy(*value, e->value); 
   return 0;
-  // return -1;
 }
 
 /* Add the given KEY, VALUE pair to CACHESET. Returns 0 if successful, else
@@ -53,43 +50,62 @@ int kvcacheset_get(kvcacheset_t *cacheset, char *key, char **value) {
  * exceed CACHESET->elem_per_set total entries. */
 int kvcacheset_put(kvcacheset_t *cacheset, char *key, char *value) {
   // OUR CODE HERE
-  long index = hash(key);
-  if (index >= cacheset->num_entries) {
-    return -1; // i need to look up what type of error this rlly is in kvconstants.h
-  }
-  // i think we might need to check if these locks and unlocks were actually successful (on all functions obviously)
-  pthread_rwlock_wrlock(cacheset->lock);
-  // but. but. how do we know which index key should map to. What if they coincide. what.
-  // do we only increment if they don't coincide. i'm confused now.
+  pthread_rwlock_rdlock(&cacheset->lock);
+  
   if (cacheset->num_entries < cacheset->elem_per_set) {
     cacheset->num_entries++;
+  } else {
+    //FIXME
+    // evict element: use 2nd change algorithm here
   }
-  pthread_rwlock_unlock(cacheset->lock);
+
+  struct kvcacheentry *e;
+  HASH_FIND_STR(cacheset->entries, key, e);
+  if (e == NULL) {
+    e = (struct kvcacheentry *) malloc(sizeof(struct kvcacheentry));
+    if (e == NULL) {
+      pthread_rwlock_unlock(&cacheset->lock);
+      // some type of error: running out of memory?
+      return -1; // temporary error
+    }
+    strcpy(e->key, (const char *) key);
+    HASH_ADD_STR(cacheset->entries, key, e);
+    // do we need to check if above line was successful? and if it wasn't to return an error code?
+  }
+  e->refbit = true; // do i need to put this in the if loop? atm, it refreshes for every put operation
+  strcpy(e->value, (const char *) value);
+
+  pthread_rwlock_unlock(&cacheset->lock);
   return 0;
-  // return -1;
 }
 
 /* Deletes the entry corresponding to KEY from CACHESET. Returns 0 if
  * successful, else returns a negative error code. */
 int kvcacheset_del(kvcacheset_t *cacheset, char *key) {
   // OUR CODE HERE
-  long index = hash(key);
-  if (index >= cacheset->num_entries) {
-    return -1; // i need to look up what type of error this rlly is in kvconstants.h
-  }
-  pthread_rwlock_wrlock(cacheset->lock);
+  // 1. We might not need this if hash_find_str takes care of this for us on empty hashtables
+  // 2. Should we support synchronization here and wait until something is deleted? i srsly doubt this option
   if (cacheset->num_entries == 0) {
-    // i don't think it'll ever hit this case. but just in case i guess? this case should
-    // be filtered initially outside the locks, if need be
-  } else {
-    // do some more stuff here
-    cacheset->num_entries--;
+    return -1;
   }
-  pthread_rwlock_unlock(cacheset->lock);
+  struct kvcacheentry *e;
+  
+  pthread_rwlock_wrlock(&cacheset->lock);
+
+  HASH_FIND_STR(cacheset->entries, key, e);
+  if (e == NULL) {
+    return ERRNOKEY;
+  }
+  HASH_DEL(cacheset->entries, e); // see if this was successful? If we need to, then check if not successful and exit on error
+  free(e);
+  cacheset->num_entries--;
+  pthread_rwlock_unlock(&cacheset->lock);
   return 0;
-  // return -1;
 }
 
 /* Completely clears this cache set. For testing purposes. */
 void kvcacheset_clear(kvcacheset_t *cacheset) {
+  HASH_CLEAR(hh, cacheset->entries);
+  // README: do we need to destroy this lock or not? when is the cacheset freed? and even when it is, do we need to destroy the lock or does free-ing take care of it?
+  // pthread_rwlock_destroy(&cacheset->lock);
 }

@@ -10,6 +10,7 @@
 // OUR CODE HERE
 #include "filesys/file.h"
 #include "devices/input.h"
+
 #include "filesys/filesys.h"
 #include "threads/malloc.h"
 
@@ -75,7 +76,9 @@ syscall_handler (struct intr_frame *f)
 
     case SYS_WRITE: {
       verify_args(args, 3);
+      lock_acquire(&file_lock);
       f->eax = write(args[1], user_to_kernel((void *) args[2]), args[3]);
+      lock_release(&file_lock);
       break;
     }
     
