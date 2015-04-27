@@ -30,7 +30,9 @@ int kvcache_init(kvcache_t *cache, unsigned int num_sets,
  * determined based on the hash of the KEY using the hash() function defined
  * within kvstore.h. */
 kvcacheset_t *get_cache_set(kvcache_t *cache, char *key) {
-  return &cache->sets[0];
+  long index = hash(key);
+  return &cache->sets[index];
+  //return &cache->sets[0];
 }
 
 /* Attempts to retrieve KEY from CACHE. If successful, returns 0 and stores the
