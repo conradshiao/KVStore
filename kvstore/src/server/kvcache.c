@@ -34,7 +34,7 @@ kvcacheset_t *get_cache_set(kvcache_t *cache, char *key) {
   // know we have to use hash(key), so this is our index into it i think?
   // what happens if hash(key) is bigger than num_sets?
   long index = hash(key);
-  if (index >= num_sets) printf("uh. what. i'm doing this wrong then i think lol\n");
+  if (index >= cache->num_sets) printf("%s\n", ERRMSG_KEY_LEN);
   return &cache->sets[index];
   // return &cache->sets[0];
 }
