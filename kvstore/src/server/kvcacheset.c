@@ -20,6 +20,7 @@ int kvcacheset_init(kvcacheset_t *cacheset, unsigned int elem_per_set) {
   if ((ret = pthread_rwlock_init(&cacheset->lock, NULL)) < 0)
     return ret;
   cacheset->num_entries = 0;
+  cacheset->entries = NULL;
   return 0;
 }
 
@@ -87,9 +88,10 @@ int kvcacheset_del(kvcacheset_t *cacheset, char *key) {
   if (cacheset->num_entries == 0) {
     return -1;
   }
-
   struct kvcacheentry *e;
+  
   pthread_rwlock_wrlock(&cacheset->lock);
+
   HASH_FIND_STR(cacheset->entries, key, e);
   if (e == NULL) {
     return ERRNOKEY;
