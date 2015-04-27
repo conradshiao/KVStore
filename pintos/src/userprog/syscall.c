@@ -10,6 +10,7 @@
 // OUR CODE HERE
 #include "filesys/file.h"
 #include "devices/input.h"
+
 #include "filesys/filesys.h"
 #include "threads/malloc.h"
 
@@ -33,16 +34,14 @@ struct file_wrapper *fd_to_file_wrapper (int fd);
 
 static unsigned curr_fd;
 
-static struct lock file_lock;
 static struct lock fd_lock;
+static struct lock file_lock;
 
 struct file_wrapper
   {
-    // bool closed;
     unsigned fd;
     struct file *file;
     struct list_elem thread_elem;
-    // struct hash_elem hash_elem;
   };
 
 void
@@ -53,25 +52,6 @@ syscall_init (void)
   lock_init(&fd_lock);
   curr_fd = 2;
 }
-
-// enum 
-//   {
-//     SYS_HALT,                   /* Halt the operating system. */
-//     SYS_EXIT,                   /* Terminate this process. */
-//     SYS_EXEC,                   /* Start another process. */
-//     SYS_WAIT,                   /* Wait for a child process to die. */
-//     SYS_CREATE,                 /* Create a file. */
-//     SYS_REMOVE,                 /* Delete a file. */
-//     SYS_OPEN,                   /* Open a file. */
-//     SYS_FILESIZE,               /* Obtain a file's size. */
-//     SYS_READ,                   /* Read from a file. */
-//     SYS_WRITE,                  /* Write to a file. */
-//     SYS_SEEK,                   /* Change position in a file. */
-//     SYS_TELL,                   /* Report current position in a file. */
-//     SYS_CLOSE,                  /* Close a file. */
-//     SYS_NULL,                   /* Returns arg incremented by 1 */
-
-//   };
 
 static void
 syscall_handler (struct intr_frame *f) 
@@ -96,7 +76,9 @@ syscall_handler (struct intr_frame *f)
 
     case SYS_WRITE: {
       verify_args(args, 3);
+      lock_acquire(&file_lock);
       f->eax = write(args[1], user_to_kernel((void *) args[2]), args[3]);
+      lock_release(&file_lock);
       break;
     }
     
@@ -132,7 +114,6 @@ syscall_handler (struct intr_frame *f)
     case SYS_OPEN: {
       verify_args(args, 1);
       f->eax = open(user_to_kernel((void *) args[1]));
-      // struct file *file = file_open (struct inode *);
       break;
     }
 
@@ -156,7 +137,6 @@ syscall_handler (struct intr_frame *f)
 
     case SYS_TELL: {
       verify_args(args, 1);
-      // f->eax = file_tell (struct file *);
       f->eax = tell(args[1]);
       break;
     }
@@ -164,7 +144,6 @@ syscall_handler (struct intr_frame *f)
     case SYS_CLOSE: {
       verify_args(args, 1);
       close(args[1]);
-      // file_close (struct file *);
       break;
     }
   }
@@ -176,19 +155,13 @@ void exit (int status) {
   printf("%s: exit(%d)\n", thread_current()->name, status);
   struct thread *curr = thread_current();
   curr->exec_status->exit_code = status;
-  // struct list_elem *e = list_begin(&curr->file_wrappers);
-  // while (!list_empty(&curr->file_wrappers)) {
-  //   struct file_wrapper *temp = list_entry(e, struct file_wrapper, thread_elem);
-  //   e = list_remove(e);
-  //   free(temp);
-  // }
+  
   struct list_elem *e;
   while (!list_empty(&curr->file_wrappers)) {
     e = list_begin(&curr->file_wrappers);
     close(list_entry(e, struct file_wrapper, thread_elem)->fd);
   }
   thread_exit();
-  // README: might need to save exit code on f->eax here when user_to_kernel fails??
 }
 
 /* Method for when we want to invoke a syscall wait. */ 
@@ -198,7 +171,6 @@ static int wait (tid_t pid) {
 
 /* Method for when we invoke a syscall exec. */
 static int exec (const char *cmd_line) {
-  // const char *file_name = (char *) user_to_kernel((const char *) argv[0]);
   lock_acquire(&file_lock);
   int status = process_execute(cmd_line);
   lock_release(&file_lock);
@@ -207,111 +179,83 @@ static int exec (const char *cmd_line) {
 
 /* Syscall handler for when a syscall write is invoked. */
 static int write (int fd, const void *buffer, unsigned size) {
-  // const void *buffer = (void *) user_to_kernel((const void *) argv[1]);
+  int bytes_written; 
   if (fd == STDOUT_FILENO) {
     putbuf(buffer, size);
-    return size;
+    bytes_written = size;
   } else if (fd == STDIN_FILENO) {
     exit(-1);
-    return -1;
   } else {
-    lock_acquire(&file_lock);
     struct file_wrapper *curr = fd_to_file_wrapper(fd);
-    if (!curr) // added check
+    if (!curr) {
       exit(-1);
-    struct file *file = curr->file;
-    int bytes_written; // default for error
-    /* if (file != NULL) {
-      bytes_written = file_write(file, buffer, size);
     } else {
+      struct file *file = curr->file;
+      lock_acquire(&file_lock);
+      bytes_written = file_write(file, buffer, size);
       lock_release(&file_lock);
-      exit(-1); // not sure what to do here?
-      return -1;
-    } */
-    bytes_written = file_write(file, buffer, size);
-    lock_release(&file_lock);
-    return bytes_written;
+    }
   }
+  return bytes_written;
 }
 
 
 /* Syscall handler for when a syscall create is invoked. */
 static bool create (const char *file, unsigned initial_size) { // DONE
-  // I don't think you need to lock_acquire here
-  if (!file)  // added check
-    exit(-1);
-  //lock_acquire(&file_lock);
-  bool success = filesys_create(file, initial_size);
-  //lock_release(&file_lock);
-  return success;
+  return filesys_create(file, initial_size);
 }
 
 /* Syscall handler for when a syscall remove is invoked. */
 static bool remove (const char *file) {
-  // do I need to free the malloc here? I would need to iterate through all my children for duplicate files right? what about other threads?
-  if (!file)  // added check
-    exit(-1);
-  //lock_acquire(&file_lock);
+  lock_acquire(&file_lock);
   bool success = filesys_remove(file);
-  //lock_release(&file_lock);
+  lock_release(&file_lock);
   return success;
 }
 
 /* Syscall handler for when a syscall open is invoked. */
 static int open (const char *file_) { // DONE
-  // README: WHAT HAPPENS WHEN YOU TRY TO OPEN A CLOSED FILE?
   lock_acquire(&file_lock);
   struct file *file = filesys_open(file_);
   lock_release(&file_lock);
   if (!file)
     return -1;
   struct file_wrapper *f = (struct file_wrapper *) malloc(sizeof(struct file_wrapper));
-  lock_acquire(&file_lock);
   f->file = file;
-  // f->closed = false;
-  list_push_back(&thread_current()->file_wrappers, &f->thread_elem); // README: list_insert for more efficiency
-  lock_release(&file_lock);
+  list_push_back(&thread_current()->file_wrappers, &f->thread_elem);
   lock_acquire(&fd_lock);
   f->fd = curr_fd++;
   lock_release(&fd_lock);
-  // hash_insert(&hash_table, &f->hash_elem);
   return f->fd;
 }
 
 /* Syscall handler for when a syscall filesize is invoked. */
-static int filesize (int fd) { // DONE
-  lock_acquire(&file_lock);
+static int filesize (int fd) {
   struct file_wrapper *curr = fd_to_file_wrapper(fd);
-  if (!curr) // added check
+  if (!curr)
     exit(-1);
+  lock_acquire(&file_lock);
   int size = file_length (curr->file);
   lock_release(&file_lock);
   return size;
 }
 
 /* Syscall handler for when a syscall read is invoked. */
-static int read (int fd, void *buffer, unsigned length) {  // FIXME
+static int read (int fd, void *buffer, unsigned length) {
   int size = -1;
-  if (fd == STDIN_FILENO) { // i don't think i need to lock_acquire and lock_release here
+  if (fd == STDIN_FILENO) {
     uint8_t *buffer_copy = (uint8_t *) buffer;
     unsigned i;
     for (i = 0; i < length; i++)
       buffer_copy[i] = input_getc();
     size = length;
   } else if (fd == STDOUT_FILENO) {
-    // printf("I'm in read... but. what. this shouldn't be happening doe. I think?\n");
-    // exit(-1);
-    // return -1; // actually this should be what we're returning i think
-    // exit(0);
-    // size = -1; // won't hit here
-    // NOTE README: this case does happen in test. Either we exit(-1) or we simply return 0...
-    // exit(-1);
-    size = -1; // or 0? or should I exit? idk
+    size = -1;
   } else {
-    lock_acquire(&file_lock);
     struct file_wrapper *curr = fd_to_file_wrapper(fd);
     if (!curr)
-      exit(-1); // added check
+      exit(-1);
+    lock_acquire(&file_lock);
     size = file_read(curr->file, buffer, length);
     lock_release(&file_lock);
   }
@@ -320,20 +264,20 @@ static int read (int fd, void *buffer, unsigned length) {  // FIXME
 
 /* Syscall handler for when a syscall seek is invoked. */
 static void seek (int fd, unsigned position) { // DONE
-  lock_acquire(&file_lock);
   struct file_wrapper *curr = fd_to_file_wrapper(fd);
-  if (!curr) // added check
+  if (!curr)
     exit(-1);
+  lock_acquire(&file_lock);
   file_seek (curr->file, position);
   lock_release(&file_lock);
 }
 
 /* Syscall handler for when a syscall tell is invoked. */
-static unsigned tell (int fd) { // DONE
-  lock_acquire(&file_lock);
+static unsigned tell (int fd) {
   struct file_wrapper *curr = fd_to_file_wrapper(fd);
-  if (!curr) // added check
+  if (!curr)
     exit(-1);
+  lock_acquire(&file_lock);
   unsigned position = file_tell(curr->file);
   lock_release(&file_lock);
   return position;
@@ -343,17 +287,13 @@ static unsigned tell (int fd) { // DONE
 static void close (int fd) {
   if (fd == STDIN_FILENO || fd == STDOUT_FILENO) {
     exit(-1);
-    // return -1; // what should I do here? or should I just exit here?
   }
-  lock_acquire(&file_lock);
   struct file_wrapper *curr = fd_to_file_wrapper(fd);
-  if (!curr) // added check
+  if (!curr)
     exit(-1);
-  // if (curr->closed)
-    // return;
+  lock_acquire(&file_lock);
   list_remove(&curr->thread_elem);
   file_close(curr->file);
-  // curr->closed = true;
   free(curr);
   lock_release(&file_lock);
 }
@@ -378,24 +318,19 @@ void verify_args(uint32_t *ptr, int argc) {
 
 /* convert the user space pointer into kernel one */
 void* user_to_kernel (void *ptr) {
-  /* README: the line of code below is NOT run when we call verify_args()
-     because this ptr is the DATA at that address, and not address itself */
-  verify_user_ptr((const void *) ptr); // have to verify the pointer you're transferring is valid also.
+  verify_user_ptr((const void *) ptr); // verify pointer you're converting is valid also.
   void* kernel_p = pagedir_get_page(thread_current()->pagedir, (const void *) ptr);
   if (!kernel_p)
     exit(-1);
   return kernel_p;
 }
 
+/* Converts the given file descriptor to the associated file_wrapper found on
+   this thread's list of file_wrappers. Returns NULL if no such file_wrapper
+   is found. */
 struct file_wrapper *
 fd_to_file_wrapper (int fd_) {
-  // struct file_wrapper f;
-  // struct hash_elem *e;
-  // f.fd = fd;
-  // return hash_find (&hash_table, &f.hash_elem) == NULL ? NULL :
-  //                   hash_entry(e, struct file_wrapper, hash_elem)->file;
   unsigned fd = (unsigned) fd_;
-  //struct list my_files = thread_current()->file_wrappers;
   struct list_elem *e;
   for (e = list_begin(&thread_current()->file_wrappers); e != list_end(&thread_current()->file_wrappers);
        e = list_next(e)) {
@@ -404,5 +339,5 @@ fd_to_file_wrapper (int fd_) {
       return curr;
     }
   }
-  return NULL; // should this ever hit?
+  return NULL;
 }
