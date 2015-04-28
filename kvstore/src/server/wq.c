@@ -9,11 +9,8 @@
 /* Initializes a work queue WQ. Sets up any necessary synchronization constructs. */
 void wq_init(wq_t *wq) {
   wq->head = NULL;
-  sem_t atomic, empty;
-  sem_init(&atomic, 0, 1); // 2nd arg = 0 --> semaphore can be used only by this process. I think in our case can be 0 or 1.
-  sem_init(&empty, 0, 0);
-  wq->atomic = atomic;
-  wq->empty = empty;
+  sem_init(&wq->atomic, 0, 1); // 2nd arg = 0 --> semaphore can be used only by this process. I think in our case can be 0 or 1.
+  sem_init(&wq->empty, 0, 0);
 }
 
 /* Remove an item from the WQ. Currently, this immediately attempts
