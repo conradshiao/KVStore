@@ -2,6 +2,8 @@
 #define __WQ__
 
 #include <pthread.h>
+// OUR CODE HERE
+#include <semaphore.h>
 
 /* WQ defines a work queue which will be used to store jobs which are waiting to be processed.
  *
@@ -20,7 +22,8 @@ typedef struct wq_item {
 typedef struct wq {
   wq_item_t *head;         /* The head of the list of items. */
   // OUR CODE HERE
-  // struct semaphore sema;
+  sem_t atomic; /* Semaphore to ensure atomic operations of wq. */
+  sem_t empty;  /* Semaphore to signal when this wq is empty. */
 } wq_t;
 
 
