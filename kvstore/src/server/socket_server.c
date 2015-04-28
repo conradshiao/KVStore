@@ -95,10 +95,10 @@ int server_run(const char *hostname, int port, server_t *server,
   strcpy(server->hostname, hostname);
 
   // OUR CODE HERE
-  pthread_t t;
-  for (int i = 0; i < server->max_threads; i++) {
-    pthread_create(t, NULL, )
-  }
+  // pthread_t t;
+  // for (int i = 0; i < server->max_threads; i++) {
+  //   pthread_create(t, NULL, )
+  // }
 
   sock_fd = socket(PF_INET, SOCK_STREAM, 0);
   server->sockfd = sock_fd;
@@ -134,30 +134,7 @@ int server_run(const char *hostname, int port, server_t *server,
   if (callback != NULL){
     callback(NULL);
   }
-
-  
-  // while (server->listening) {
-  //   client_sock = accept(sock_fd, (struct sockaddr *) &client_address,
-  //       (socklen_t *) &client_address_length);
-  //   if (client_sock > 0) {
-  //     wq_push(&server->wq, (void *) (intptr_t) client_sock);
-  //     handle(server);
-  //   }
-  // }
-  // shutdown(sock_fd, SHUT_RDWR);
-  // close(sock_fd);
-  // return 0;
-}
-
-/* Stops SERVER from continuing to listen for incoming requests. */
-void server_stop(server_t *server) {
-  server->listening = 0;
-  shutdown(server->sockfd, SHUT_RDWR);
-  close(server->sockfd);
-}
-
-
-void *pool_thread (server_t *server) {
+    
   while (server->listening) {
     client_sock = accept(sock_fd, (struct sockaddr *) &client_address,
         (socklen_t *) &client_address_length);
@@ -170,3 +147,25 @@ void *pool_thread (server_t *server) {
   close(sock_fd);
   return 0;
 }
+
+/* Stops SERVER from continuing to listen for incoming requests. */
+void server_stop(server_t *server) {
+  server->listening = 0;
+  shutdown(server->sockfd, SHUT_RDWR);
+  close(server->sockfd);
+}
+
+
+// void *pool_thread (server_t *server) {
+//   while (server->listening) {
+//     client_sock = accept(sock_fd, (struct sockaddr *) &client_address,
+//         (socklen_t *) &client_address_length);
+//     if (client_sock > 0) {
+//       wq_push(&server->wq, (void *) (intptr_t) client_sock);
+//       handle(server);
+//     }
+//   }
+//   shutdown(sock_fd, SHUT_RDWR);
+//   close(sock_fd);
+//   return 0;
+// }
