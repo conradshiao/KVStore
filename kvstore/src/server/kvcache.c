@@ -31,11 +31,10 @@ int kvcache_init(kvcache_t *cache, unsigned int num_sets,
  * within kvstore.h. */
 kvcacheset_t *get_cache_set(kvcache_t *cache, char *key) {
   // OUR CODE HERE
-  unsigned long index = hash(key);
+  unsigned long index = hash(key) % cache->num_sets;
   if (index >= cache->num_sets) 
     printf("%s\n", ERRMSG_KEY_LEN);
-  return &cache->sets[hash(key)%(cache->num_sets)];
-  //return &cache->sets[0];
+  return &cache->sets[index];
 }
 
 /* Attempts to retrieve KEY from CACHE. If successful, returns 0 and stores the
