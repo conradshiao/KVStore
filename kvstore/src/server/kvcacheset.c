@@ -20,7 +20,9 @@ int kvcacheset_init(kvcacheset_t *cacheset, unsigned int elem_per_set) {
   if ((ret = pthread_rwlock_init(&cacheset->lock, NULL)) < 0)
     return ret;
   cacheset->num_entries = 0;
+  // OUR CODE HERE
   cacheset->entries = NULL;
+  cacheset->head = NULL;
   return 0;
 }
 
@@ -55,8 +57,21 @@ int kvcacheset_put(kvcacheset_t *cacheset, char *key, char *value) {
   if (cacheset->num_entries < cacheset->elem_per_set) {
     cacheset->num_entries++;
   } else {
-    //FIXME
-    // evict element: use 2nd change algorithm here
+    // evict element: use 2nd chance algorithm here
+    kvcacheentry *head = cacheset->head;
+    kvcacheentry *entry, temp;
+    bool deleted = false;
+    while (!deleted) {
+      DL_FOREACH_SAFE(head, entry, temp) {
+        if (entry->refbit) {
+          entry->refbit = false;
+        } else {
+          DL_DELETE(head, entry);
+          deleted = true;
+          break;
+        }
+      }
+    }
   }
 
   struct kvcacheentry *e;
@@ -68,11 +83,13 @@ int kvcacheset_put(kvcacheset_t *cacheset, char *key, char *value) {
       // some type of error: running out of memory?
       return -1; // temporary error
     }
+    e->refbit = false;
     strcpy(e->key, (const char *) key);
     HASH_ADD_STR(cacheset->entries, key, e);
-    // do we need to check if above line was successful? and if it wasn't to return an error code?
+    DL_APPEND(cacheset->head, e);
+  } else {
+    e->refbit = true;
   }
-  e->refbit = true; // do i need to put this in the if loop? atm, it refreshes for every put operation
   strcpy(e->value, (const char *) value);
 
   pthread_rwlock_unlock(&cacheset->lock);
@@ -97,6 +114,7 @@ int kvcacheset_del(kvcacheset_t *cacheset, char *key) {
     return ERRNOKEY;
   }
   HASH_DEL(cacheset->entries, e); // see if this was successful? If we need to, then check if not successful and exit on error
+  DL_DELETE(cacheset->head, e);
   free(e);
   cacheset->num_entries--;
   pthread_rwlock_unlock(&cacheset->lock);
@@ -106,6 +124,10 @@ int kvcacheset_del(kvcacheset_t *cacheset, char *key) {
 /* Completely clears this cache set. For testing purposes. */
 void kvcacheset_clear(kvcacheset_t *cacheset) {
   HASH_CLEAR(hh, cacheset->entries);
+  kvcacheentry *elt, *tmp;
+  DL_FOREACH_SAFE(cacheset->head, elt, tmp) {
+    DL_DELETE(cacheset->head, elt);
+  }
   // README: do we need to destroy this lock or not? when is the cacheset freed? and even when it is, do we need to destroy the lock or does free-ing take care of it?
   // pthread_rwlock_destroy(&cacheset->lock);
 }
