@@ -20,6 +20,15 @@
 
 #define TIMEOUT 100
 
+static void* server_run_helper(void *arg);
+
+struct server_helper {
+  server_t *server;
+  int sock_fd;
+  struct sockaddr_in client_address;
+  size_t client_address_length;
+};
+
 /* Handles requests under the assumption that SERVER is a TPC Master. */
 void handle_master(server_t *server) {
   int sockfd;
@@ -84,8 +93,8 @@ int connect_to(const char *host, int port, int timeout) {
  * at a time. It is your task to modify it such that it can handle up to
  * SERVER->max_threads jobs at a time asynchronously. */
 int server_run(const char *hostname, int port, server_t *server,
-    callback_t callback) {
-  int sock_fd, client_sock, socket_option;
+               callback_t callback) {
+  int sock_fd, socket_option;
   struct sockaddr_in client_address;
   size_t client_address_length = sizeof(client_address);
   wq_init(&server->wq);
@@ -93,12 +102,6 @@ int server_run(const char *hostname, int port, server_t *server,
   server->port = port;
   server->hostname = (char *) malloc(strlen(hostname) + 1);
   strcpy(server->hostname, hostname);
-
-  // OUR CODE HERE
-  // pthread_t t;
-  // for (int i = 0; i < server->max_threads; i++) {
-  //   pthread_create(t, NULL, )
-  // }
 
   sock_fd = socket(PF_INET, SOCK_STREAM, 0);
   server->sockfd = sock_fd;
@@ -134,18 +137,44 @@ int server_run(const char *hostname, int port, server_t *server,
   if (callback != NULL){
     callback(NULL);
   }
-    
-  while (server->listening) {
-    client_sock = accept(sock_fd, (struct sockaddr *) &client_address,
-        (socklen_t *) &client_address_length);
-    if (client_sock > 0) {
-      wq_push(&server->wq, (void *) (intptr_t) client_sock);
-      handle(server);
-    }
+
+  // OUR CODE HERE: initializing argument struct for helper thread function for pool thread.
+  struct server_helper *server_helper_ptr =
+      (struct server_helper *) malloc(sizeof(struct server_helper));
+  server_helper_ptr->server = server;
+  server_helper_ptr->sock_fd = sock_fd;
+  server_helper_ptr->client_address = client_address;
+  server_helper_ptr->client_address_length = client_address_length;
+
+  pthread_t *threads = (pthread_t *) malloc(server->max_threads * sizeof(pthread_t));
+  int i;
+  for (i = 0; i < server->max_threads; i++) {
+    pthread_create(&threads[i], NULL, server_run_helper, server_helper_ptr);
   }
+  // wait for all threads to terminate, then we can free our server_helper_ptr
+  for (i = 0; i < server->max_threads; i++) {
+    pthread_join(threads[i], NULL);
+  }
+  free(server_helper_ptr);
+
   shutdown(sock_fd, SHUT_RDWR);
   close(sock_fd);
   return 0;
+}
+
+/* Helper function to allow a thread to serve client requests on the server
+   found in server_run. All necessary arguments are found in the server_helper struct. */
+static void* server_run_helper(void *arg_) {
+  struct server_helper *arg = (struct server_helper *) arg_;
+  while (arg->server->listening) {
+    int client_sock = accept(arg->sock_fd, (struct sockaddr *) &arg->client_address,
+        (socklen_t *) &arg->client_address_length);
+    if (client_sock > 0) {
+      wq_push(&arg->server->wq, (void *) (intptr_t) client_sock);
+      handle(arg->server);
+    }
+  }
+  pthread_exit(0);
 }
 
 /* Stops SERVER from continuing to listen for incoming requests. */
@@ -154,18 +183,3 @@ void server_stop(server_t *server) {
   shutdown(server->sockfd, SHUT_RDWR);
   close(server->sockfd);
 }
-
-
-// void *pool_thread (server_t *server) {
-//   while (server->listening) {
-//     client_sock = accept(sock_fd, (struct sockaddr *) &client_address,
-//         (socklen_t *) &client_address_length);
-//     if (client_sock > 0) {
-//       wq_push(&server->wq, (void *) (intptr_t) client_sock);
-//       handle(server);
-//     }
-//   }
-//   shutdown(sock_fd, SHUT_RDWR);
-//   close(sock_fd);
-//   return 0;
-// }
