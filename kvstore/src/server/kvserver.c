@@ -70,10 +70,10 @@ int kvserver_put_check(kvserver_t *server, char *key, char *value) {
  * Returns 0 if successful, else a negative error code. */
 int kvserver_put(kvserver_t *server, char *key, char *value) {
   int success;
-  pthread_rwlock_t *lock = kvcache_getlock(&server->cache, key);
-  pthread_rwlock_wrlock(lock);
+  // pthread_rwlock_t *lock = kvcache_getlock(&server->cache, key);
+  // pthread_rwlock_wrlock(lock);
   success = kvcache_put(&server->cache, key, value);
-  pthread_rwlock_unlock(lock);
+  // pthread_rwlock_unlock(lock);
   if (success < 0) {
     return -1; //FIXME: get correct type of error code
   }
@@ -132,12 +132,67 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg,
  * of RESPMSG as a response. RESPMSG and REQMSG both must point to valid
  * kvmessage_t structs. Assumes that the request should be handled as a non-TPC
  * message. See the spec for details on logic and error messages. */
+// void kvserver_handle_no_tpc(kvserver_t *server, kvmessage_t *reqmsg,
+//     kvmessage_t *respmsg) {
+//   respmsg->type = RESP;
+//   respmsg->message = ERRMSG_NOT_IMPLEMENTED;
+// }
 void kvserver_handle_no_tpc(kvserver_t *server, kvmessage_t *reqmsg,
     kvmessage_t *respmsg) {
-  respmsg->type = RESP;
-  respmsg->message = ERRMSG_NOT_IMPLEMENTED;
+  if (reqmsg == NULL || respmsg == NULL) {
+    return;
+  }
+  int error;
+  switch(reqmsg->type) {
+    case GETREQ:
+      error = kvserver_get(server, reqmsg->key, &reqmsg->value);
+      if (error == 0) {
+        respmsg->type = GETRESP;
+        respmsg->key = reqmsg->key;
+        respmsg->value = reqmsg->value;
+        // no message, right?
+      } else {
+        respmsg->type = RESP;
+        respmsg->message = GETMSG(error);
+      }
+      break;
+    case PUTREQ: 
+      error = kvserver_put_check(server, reqmsg->key, reqmsg->value);
+      if (error == 0) {
+        error = kvserver_put(server, reqmsg->key, reqmsg->value);
+        if (error == 0) {
+          respmsg->type = RESP;
+          respmsg->message = MSG_SUCCESS;
+        }
+      } 
+      if (error != 0) {
+        respmsg->type = RESP;
+        respmsg->message = GETMSG(error); 
+      }
+      break;
+    case DELREQ:
+      error = kvserver_del_check(server, reqmsg->key);
+      if (error == 0) {
+        error = kvserver_del(server, reqmsg->key);
+        if (error == 0) {
+          respmsg->type = RESP;
+          respmsg->message = MSG_SUCCESS;
+        }
+      } 
+      if (error != 0) {
+        respmsg->type = RESP;
+        respmsg->message = GETMSG(error); 
+      }
+      break;
+    case INFO:
+      respmsg->type = INFO; // is this right?
+      respmsg->message = kvserver_get_info_message(server);
+      break;
+    default:
+      respmsg->type = RESP;
+      respmsg->message = ERRMSG_NOT_IMPLEMENTED;
+  }
 }
-
 /* Generic entrypoint for this SERVER. Takes in a socket on SOCKFD, which
  * should already be connected to an incoming request. Processes the request
  * and sends back a response message.  This should call out to the appropriate
