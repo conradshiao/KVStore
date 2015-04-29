@@ -53,7 +53,7 @@ int kvserver_register_master(kvserver_t *server, int sockfd) {
  * be free()d.  If the KEY is in cache, take the value from there. Otherwise,
  * go to the store and update the value in the cache. */
 int kvserver_get(kvserver_t *server, char *key, char **value) {
-  if (kvcache_get(&server->cache, key, value) == 0) { // successfully cached
+  if (kvcache_get(&server->cache, key, value) == 0) {
     return 0;
   }
   return kvstore_get(&server->store, key, value);
@@ -69,12 +69,17 @@ int kvserver_put_check(kvserver_t *server, char *key, char *value) {
  * to the cache should be concurrent if the keys are in different cache sets.
  * Returns 0 if successful, else a negative error code. */
 int kvserver_put(kvserver_t *server, char *key, char *value) {
+  int success;
   pthread_rwlock_t *lock = kvcache_getlock(&server->cache, key);
   pthread_rwlock_wrlock(lock);
-  kvcache_put(&server->cache, key, value); // just get, acquire, realse the lock because multiple perocesses are doing this
+  success = kvcache_put(&server->cache, key, value);
   pthread_rwlock_unlock(lock);
-  kvstore_put(&server->store, key, value);
-  return -1;
+  if (success < 0) {
+    return -1; //FIXME: get correct type of error code
+  }
+  return kvstore_put(&server->store, key, value);
+  // so if cache is unsuccessful or put is unsuccessful, should we be doing this
+// a complicated way? like with logging and stuff? idk.
 }
 
 /* Checks if the given KEY can be deleted from this server's store.
@@ -87,12 +92,14 @@ int kvserver_del_check(kvserver_t *server, char *key) {
  * cache should be concurrent if the keys are in different cache sets. Returns
  * 0 if successful, else a negative error code. */
 int kvserver_del(kvserver_t *server, char *key) {
+  int ret;
   pthread_rwlock_t *lock = kvcache_getlock(&server->cache, key);
   pthread_rwlock_wrlock(lock);
-  kvcache_del(&server->cache, key);
+  if ((ret = kvcache_del(&server->cache, key)) < 0) {
+    return ret;
+  }
   pthread_rwlock_unlock(lock);
-  kvstore_del(&server->store, key);
-  return -1;
+  return kvstore_del(&server->store, key);
 }
 
 /* Returns an info string about SERVER including its hostname and port. */
@@ -127,54 +134,8 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg,
  * message. See the spec for details on logic and error messages. */
 void kvserver_handle_no_tpc(kvserver_t *server, kvmessage_t *reqmsg,
     kvmessage_t *respmsg) {
-  if (reqmsg == NULL || respmsg == NULL) {
-    return;
-  }
-  int error;
-  switch(reqmsg->type) {
-    case GETREQ:
-      error = kvserver_get(server, reqmsg->key, reqmsg->value);
-      if (error == 0) {
-        respmsg->type = GETRESP;
-        respmsg->key = reqmsg->key;
-        respmsg->value = reqmsg->value;
-        // no message, right?
-      } else {
-        respmsg->type = RESP;
-        respmsg->message = GETMSG(error);
-      }
-      break;
-    case PUTREQ: 
-      error = kvserver_put_check(server, reqmsg->key, reqmsg->value);
-      if (error == 0) {
-        error = kvserver_put(server, reqmsg->key, reqmsg->value);
-        if (error == 0) {
-          respmsg->type = RESP;
-          respmsg->message = MSG_SUCCESS;
-        }
-      } else {
-        respmsg->type = RESP;
-        respmsg->message = GETMSG(error); 
-      }
-      break;
-    case DELREQ:
-      error = kvserver_del_check(server, reqmsg->key);
-      if (error == 0) {
-        error = kvserver_del(server, reqmsg->key);
-        if (error == 0) {
-          respmsg->type = RESP;
-          respmsg->message = MSG_SUCCESS;
-        }
-      } else {
-        respmsg->type = RESP;
-        respmsg->message = GETMSG(error); 
-      }
-      break;
-    case INFO:
-      respmsg->type = INFO; // is this right?
-      respmsg->message = kvserver_get_info_message(server);
-      break;
-  }
+  respmsg->type = RESP;
+  respmsg->message = ERRMSG_NOT_IMPLEMENTED;
 }
 
 /* Generic entrypoint for this SERVER. Takes in a socket on SOCKFD, which
