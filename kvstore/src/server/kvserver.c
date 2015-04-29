@@ -56,7 +56,11 @@ int kvserver_get(kvserver_t *server, char *key, char **value) {
   if (kvcache_get(&server->cache, key, value) == 0) {
     return 0;
   }
-  return kvstore_get(&server->store, key, value);
+  int ret;
+  if ((ret = kvstore_get(&server->store, key, value)) == 0) {
+    return kvcache_put(&server->cache, key, *value);
+  }
+  return ret;
 }
 
 /* Checks if the given KEY, VALUE pair can be inserted into this server's
