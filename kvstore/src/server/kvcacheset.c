@@ -67,7 +67,10 @@ int kvcacheset_put(kvcacheset_t *cacheset, char *key, char *value) {
       pthread_rwlock_unlock(&cacheset->lock);
       return -1; // some type of error: running out of memory?
     }
-    e->key = (char *) malloc(strlen(key) + 1);
+    e->key = (char *) malloc((strlen(key) + 1) * sizeof(char));
+    if (!e->key) {
+      return -1;
+    }
     strcpy(e->key, (const char *) key);
     HASH_ADD_STR(cacheset->entries, key, e);
     DL_APPEND(cacheset->head, e);
@@ -94,7 +97,10 @@ int kvcacheset_put(kvcacheset_t *cacheset, char *key, char *value) {
     free(e->value);
     e->refbit = true;
   }
-  e->value = (char *) malloc(strlen(value) + 1);
+  e->value = (char *) malloc((strlen(value) + 1) * sizeof(char));
+  if (!e->value) {
+    return -1;
+  }
   strcpy(e->value, (const char *) value);
 
   pthread_rwlock_unlock(&cacheset->lock);
