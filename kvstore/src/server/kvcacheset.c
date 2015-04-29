@@ -15,10 +15,10 @@
 int kvcacheset_init(kvcacheset_t *cacheset, unsigned int elem_per_set) {
   if (elem_per_set < 2)
     return -1;
-  cacheset->elem_per_set = elem_per_set;
   int ret;
   if ((ret = pthread_rwlock_init(&cacheset->lock, NULL)) < 0)
     return ret;
+  cacheset->elem_per_set = elem_per_set;
   cacheset->num_entries = 0;
   // OUR CODE HERE
   cacheset->entries = NULL;
@@ -31,9 +31,10 @@ int kvcacheset_init(kvcacheset_t *cacheset, unsigned int elem_per_set) {
  * else returns a negative error code. If successful, populates VALUE with a
  * malloced string which should later be freed. */
 int kvcacheset_get(kvcacheset_t *cacheset, char *key, char **value) {
+  
   // OUR CODE HERE
   struct kvcacheentry *e;
- 
+
   pthread_rwlock_rdlock(&cacheset->lock);
   HASH_FIND_STR(cacheset->entries, key, e);
   pthread_rwlock_unlock(&cacheset->lock);
@@ -42,58 +43,62 @@ int kvcacheset_get(kvcacheset_t *cacheset, char *key, char **value) {
     return ERRNOKEY;
   }
 
+  e->refbit = true;
   *value = (char *) malloc((strlen(e->value) + 1) * sizeof(char));
-  strcpy(*value, e->value); 
+  strcpy(*value, (const char *) e->value);
   return 0;
+
 }
 
 /* Add the given KEY, VALUE pair to CACHESET. Returns 0 if successful, else
  * returns a negative error code. Should evict elements if necessary to not
  * exceed CACHESET->elem_per_set total entries. */
 int kvcacheset_put(kvcacheset_t *cacheset, char *key, char *value) {
-  // OUR CODE HERE
-  pthread_rwlock_rdlock(&cacheset->lock);
   
-  if (cacheset->num_entries < cacheset->elem_per_set) {
-    cacheset->num_entries++;
-  } else {
-    // evict element: use 2nd chance algorithm here
-    struct kvcacheentry *head = cacheset->head;
-    struct kvcacheentry *entry, *temp;
-    bool deleted = false;
-    while (!deleted) {
-      DL_FOREACH_SAFE(head, entry, temp) {
-        if (entry->refbit) {
-          entry->refbit = false;
-        } else {
-          DL_DELETE(head, entry);
-          deleted = true;
-          break;
-        }
-      }
-    }
-  }
+  // OUR CODE HERE
+  pthread_rwlock_wrlock(&cacheset->lock);
 
   struct kvcacheentry *e;
   HASH_FIND_STR(cacheset->entries, key, e);
+
   if (e == NULL) {
     e = (struct kvcacheentry *) malloc(sizeof(struct kvcacheentry));
     if (e == NULL) {
       pthread_rwlock_unlock(&cacheset->lock);
       // some type of error: running out of memory?
-      return -1; // temporary error
+      return -1;
     }
-    e->refbit = false;
+    e->key = (char *) malloc(strlen(key)+1);
     strcpy(e->key, (const char *) key);
     HASH_ADD_STR(cacheset->entries, key, e);
     DL_APPEND(cacheset->head, e);
+    e->refbit = false;
+
+    if (cacheset->num_entries < cacheset->elem_per_set) {
+      cacheset->num_entries++;
+    } else {
+      // evict element: use 2nd change algorithm here
+      while (true) {
+        struct kvcacheentry *candidate = cacheset->head;
+        DL_DELETE(cacheset->head, candidate);
+        if (candidate->refbit) {
+          candidate->refbit = false;
+          DL_APPEND(cacheset->head, candidate);
+        } else {
+          HASH_DEL(cacheset->entries, candidate);
+          break; 
+        }
+      }
+    }
   } else {
     e->refbit = true;
   }
+  e->value = (char *) malloc(strlen(value)+1);
   strcpy(e->value, (const char *) value);
 
   pthread_rwlock_unlock(&cacheset->lock);
   return 0;
+
 }
 
 /* Deletes the entry corresponding to KEY from CACHESET. Returns 0 if
@@ -102,6 +107,7 @@ int kvcacheset_del(kvcacheset_t *cacheset, char *key) {
   // OUR CODE HERE
   // 1. We might not need this if hash_find_str takes care of this for us on empty hashtables
   // 2. Should we support synchronization here and wait until something is deleted? i srsly doubt this option
+  
   if (cacheset->num_entries == 0) {
     return -1;
   }
@@ -119,15 +125,17 @@ int kvcacheset_del(kvcacheset_t *cacheset, char *key) {
   cacheset->num_entries--;
   pthread_rwlock_unlock(&cacheset->lock);
   return 0;
+  
+  return -1;
 }
 
 /* Completely clears this cache set. For testing purposes. */
 void kvcacheset_clear(kvcacheset_t *cacheset) {
-  HASH_CLEAR(hh, cacheset->entries);
+  HASH_CLEAR(hh, cacheset->entries); // don't want to free yet until we delete from both data structures
   struct kvcacheentry *elt, *tmp;
   DL_FOREACH_SAFE(cacheset->head, elt, tmp) {
     DL_DELETE(cacheset->head, elt);
+    free(elt); // i think we need this here
   }
-  // README: do we need to destroy this lock or not? when is the cacheset freed? and even when it is, do we need to destroy the lock or does free-ing take care of it?
-  // pthread_rwlock_destroy(&cacheset->lock);
+
 }
