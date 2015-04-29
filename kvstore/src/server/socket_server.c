@@ -22,10 +22,15 @@
 
 static void* server_run_helper(void *arg);
 
+/* Struct that will be passed in to the server_run_helper thread function,
+   which itself can only take one argument as parameter. */
 struct server_helper {
+  /* All fields are variables found in server_run() that are necessary to pass into
+     server_run_helper() to listen and accept client requests with the server in the
+     helper thread function. */
   server_t *server;
   int sock_fd;
-  struct sockaddr_in client_address;
+  struct sockaddr_in client_address;  
   size_t client_address_length;
 };
 
