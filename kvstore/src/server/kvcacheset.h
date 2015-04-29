@@ -21,10 +21,15 @@
 
 /* An entry within the KVCacheSet. */
 struct kvcacheentry {
-  char *key;                      /* The entry's key. */
-  char *value;                    /* The entry's value. */
-  bool refbit;                    /* Used to determine if this entry has been used. */
-  UT_hash_handle hh;
+  char *key;                    /* The entry's key. */
+  char *value;                  /* The entry's value. */
+  bool refbit;                  /* Used to determine if this entry has been used. */
+
+  // OUR CODE HERE
+  UT_hash_handle hh;            /* Handle to allow ut_hash operations for the
+                                   kvcacheentry hashtable in struct kvcacheset_t. */
+
+  /* These two pointers below are needed to implement a kvcacheset_t's doubly-linked kvcacheentry list. */
   struct kvcacheentry *prev;
   struct kvcacheentry *next;
 };
@@ -34,6 +39,7 @@ typedef struct {
   unsigned int elem_per_set;      /* The max number of elements which can be stored in this set. */
   pthread_rwlock_t lock;          /* The lock which can be used to lock this set. */
   int num_entries;                /* The current number of entries in this set. */
+  // OUR CODE HERE
   struct kvcacheentry *head;	    /* List view of my kvcacheentries. */
   struct kvcacheentry *entries;   /* Hash table view of my kvcacheentries. */
 } kvcacheset_t;
