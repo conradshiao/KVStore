@@ -22,8 +22,8 @@ typedef struct wq_item {
 typedef struct wq {
   wq_item_t *head;         /* The head of the list of items. */
   // OUR CODE HERE
-  sem_t atomic; /* Semaphore to ensure atomic operations of wq. */
-  sem_t empty;  /* Semaphore to signal when this wq is empty. */
+  pthread_mutex_t lock;
+  pthread_cond_t cv;
 } wq_t;
 
 
