@@ -59,7 +59,7 @@ int kvserver_get(kvserver_t *server, char *key, char **value) {
     return 0;
   if ((ret = kvstore_get(&server->store, key, value)) < 0)
     return ret;
-  return kvcache_put(&server->cache, key, *value);
+  return kvcache_put(&server->cache, key, *value); // what happens if this is unsuccessful?
 }
 
 /* Checks if the given KEY, VALUE pair can be inserted into this server's
@@ -93,9 +93,10 @@ int kvserver_del_check(kvserver_t *server, char *key) {
 int kvserver_del(kvserver_t *server, char *key) {
   // OUR CODE HERE
   int ret;
-  if ((ret = kvcache_del(&server->cache, key)) < 0)
+  if ((ret = kvstore_del(&server->store, key)) < 0)
     return ret;
-  return kvstore_del(&server->store, key);
+  kvcache_del(&server->cache, key);
+  return 0;
 }
 
 /* Returns an info string about SERVER including its hostname and port. */
@@ -213,7 +214,7 @@ void kvserver_handle(kvserver_t *server, int sockfd, void *extra) {
 }
 
 /* Restore SERVER back to the state it should be in, according to the
- * associated LOG.  Must be called on an initialized  SERVER. Only restores the
+ * associated LOG.  Must be called on an initialized SERVER. Only restores the
  * state of the most recent TPC transaction, assuming that all previous actions
  * have been written to persistent storage. Should restore SERVER to its exact
  * state; e.g. if SERVER had written into its log that it received a PUTREQ but
