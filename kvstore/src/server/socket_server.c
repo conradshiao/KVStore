@@ -161,6 +161,7 @@ int server_run(const char *hostname, int port, server_t *server,
     pthread_join(threads[i], NULL);
   }
   free(server_helper_ptr);
+  free(threads);
 
   shutdown(sock_fd, SHUT_RDWR);
   close(sock_fd);
