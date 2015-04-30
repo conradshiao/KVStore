@@ -39,6 +39,7 @@ typedef struct {
   unsigned int elem_per_set;      /* The max number of elements which can be stored in this set. */
   pthread_rwlock_t lock;          /* The lock which can be used to lock this set. */
   int num_entries;                /* The current number of entries in this set. */
+  
   // OUR CODE HERE
   struct kvcacheentry *head;	    /* List view of my kvcacheentries. */
   struct kvcacheentry *entries;   /* Hash table view of my kvcacheentries. */

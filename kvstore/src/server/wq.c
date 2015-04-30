@@ -8,6 +8,7 @@
 /* Initializes a work queue WQ. Sets up any necessary synchronization constructs. */
 void wq_init(wq_t *wq) {
   wq->head = NULL;
+  // OUR CODE HERE
   pthread_mutex_init(&wq->lock, NULL);
   pthread_cond_init(&wq->cv, NULL);
 }
@@ -20,6 +21,7 @@ void wq_init(wq_t *wq) {
  * contains at least one item, then remove that item from the list and
  * return it. */
 void *wq_pop(wq_t *wq) {
+  // OUR CODE HERE
   pthread_mutex_lock(&wq->lock);
   while (wq->head == NULL) {
     pthread_cond_wait(&wq->cv, &wq->lock);
@@ -35,6 +37,7 @@ void *wq_pop(wq_t *wq) {
  * It is your task to perform any necessary operations to properly
  * perform synchronization. */
 void wq_push(wq_t *wq, void *item) {
+  // OUR CODE HERE
   pthread_mutex_lock(&wq->lock);
   wq_item_t *wq_item = calloc(1, sizeof(wq_item_t));
   wq_item->item = item;

@@ -25,9 +25,9 @@ static void* server_run_helper(void *arg);
 /* Struct that will be passed in to the server_run_helper thread function,
    which itself can only take one argument as parameter. */
 struct server_helper {
-  /* All fields are variables found in server_run() that are necessary to pass into
-     server_run_helper() to listen and accept client requests with the server in the
-     helper thread function. */
+  /* All fields are variables found in server_run() that are necessary to pass
+     into server_run_helper() to listen and accept client requests with the
+     server in the helper thread function. */
   server_t *server;
   int sock_fd;
   struct sockaddr_in client_address;  
@@ -170,6 +170,7 @@ int server_run(const char *hostname, int port, server_t *server,
 /* Helper function to allow a thread to serve client requests on the server
    found in server_run. All necessary arguments are found in the server_helper struct. */
 static void* server_run_helper(void *arg_) {
+  // OUR CODE HERE
   struct server_helper *arg = (struct server_helper *) arg_;
   while (arg->server->listening) {
     int client_sock = accept(arg->sock_fd, (struct sockaddr *) &arg->client_address,

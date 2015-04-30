@@ -22,8 +22,8 @@ typedef struct wq_item {
 typedef struct wq {
   wq_item_t *head;         /* The head of the list of items. */
   // OUR CODE HERE
-  pthread_mutex_t lock;
-  pthread_cond_t cv;
+  pthread_mutex_t lock;    /* The lock paired with my condition variable. */
+  pthread_cond_t cv;       /* Condition variable to handle when I'm empty. */
 } wq_t;
 
 

@@ -53,19 +53,19 @@ int kvserver_register_master(kvserver_t *server, int sockfd) {
  * be free()d.  If the KEY is in cache, take the value from there. Otherwise,
  * go to the store and update the value in the cache. */
 int kvserver_get(kvserver_t *server, char *key, char **value) {
-  if (kvcache_get(&server->cache, key, value) == 0) {
-    return 0;
-  }
+  // OUR CODE HERE
   int ret;
-  if ((ret = kvstore_get(&server->store, key, value)) == 0) {
-    return kvcache_put(&server->cache, key, *value);
-  }
-  return ret;
+  if (kvcache_get(&server->cache, key, value) == 0)
+    return 0;
+  if ((ret = kvstore_get(&server->store, key, value)) < 0)
+    return ret;
+  return kvcache_put(&server->cache, key, *value);
 }
 
 /* Checks if the given KEY, VALUE pair can be inserted into this server's
  * store. Returns 0 if it can, else a negative error code. */
 int kvserver_put_check(kvserver_t *server, char *key, char *value) {
+  // OUR CODE HERE
   return kvstore_put_check(&server->store, key, value);
 }
 
@@ -73,22 +73,17 @@ int kvserver_put_check(kvserver_t *server, char *key, char *value) {
  * to the cache should be concurrent if the keys are in different cache sets.
  * Returns 0 if successful, else a negative error code. */
 int kvserver_put(kvserver_t *server, char *key, char *value) {
+  // OUR CODE HERE
   int success;
-  // pthread_rwlock_t *lock = kvcache_getlock(&server->cache, key);
-  // pthread_rwlock_wrlock(lock);
-  success = kvcache_put(&server->cache, key, value);
-  // pthread_rwlock_unlock(lock);
-  if (success < 0) {
-    return -1; //FIXME: get correct type of error code
-  }
+  if ((success = kvcache_put(&server->cache, key, value)) < 0)
+    return success;
   return kvstore_put(&server->store, key, value);
-  // so if cache is unsuccessful or put is unsuccessful, should we be doing this
-// a complicated way? like with logging and stuff? idk.
 }
 
 /* Checks if the given KEY can be deleted from this server's store.
  * Returns 0 if it can, else a negative error code. */
 int kvserver_del_check(kvserver_t *server, char *key) {
+  // OUR CODE HERE
   return kvstore_del_check(&server->store, key);
 }
 
@@ -96,13 +91,10 @@ int kvserver_del_check(kvserver_t *server, char *key) {
  * cache should be concurrent if the keys are in different cache sets. Returns
  * 0 if successful, else a negative error code. */
 int kvserver_del(kvserver_t *server, char *key) {
+  // OUR CODE HERE
   int ret;
-  pthread_rwlock_t *lock = kvcache_getlock(&server->cache, key);
-  pthread_rwlock_wrlock(lock);
-  if ((ret = kvcache_del(&server->cache, key)) < 0) {
+  if ((ret = kvcache_del(&server->cache, key)) < 0)
     return ret;
-  }
-  pthread_rwlock_unlock(lock);
   return kvstore_del(&server->store, key);
 }
 
@@ -126,8 +118,7 @@ char *kvserver_get_info_message(kvserver_t *server) {
  * failure.  See the spec for details on logic and error messages.
  *
  * Checkpoint 2 only. */
-void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg,
-    kvmessage_t *respmsg) {
+void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *respmsg) {
   respmsg->type = RESP;
   respmsg->message = ERRMSG_NOT_IMPLEMENTED;
 }
@@ -136,30 +127,25 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg,
  * of RESPMSG as a response. RESPMSG and REQMSG both must point to valid
  * kvmessage_t structs. Assumes that the request should be handled as a non-TPC
  * message. See the spec for details on logic and error messages. */
-// void kvserver_handle_no_tpc(kvserver_t *server, kvmessage_t *reqmsg,
-//     kvmessage_t *respmsg) {
-//   respmsg->type = RESP;
-//   respmsg->message = ERRMSG_NOT_IMPLEMENTED;
-// }
-void kvserver_handle_no_tpc(kvserver_t *server, kvmessage_t *reqmsg,
-    kvmessage_t *respmsg) {
-  if (reqmsg == NULL || respmsg == NULL) {
+void kvserver_handle_no_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *respmsg) {
+  // OUR CODE HERE
+  if (reqmsg == NULL || respmsg == NULL)
     return;
-  }
+
   int error;
-  switch(reqmsg->type) {
+  switch (reqmsg->type) {
+
     case GETREQ:
       error = kvserver_get(server, reqmsg->key, &reqmsg->value);
       if (error == 0) {
         respmsg->type = GETRESP;
         respmsg->key = reqmsg->key;
         respmsg->value = reqmsg->value;
-        // no message, right?
+        break;
       } else {
-        respmsg->type = RESP;
-        respmsg->message = GETMSG(error);
+        goto unsuccessful_request;
       }
-      break;
+
     case PUTREQ: 
       error = kvserver_put_check(server, reqmsg->key, reqmsg->value);
       if (error == 0) {
@@ -168,12 +154,11 @@ void kvserver_handle_no_tpc(kvserver_t *server, kvmessage_t *reqmsg,
           respmsg->type = RESP;
           respmsg->message = MSG_SUCCESS;
         }
-      } 
-      if (error != 0) {
-        respmsg->type = RESP;
-        respmsg->message = GETMSG(error); 
       }
+      if (error < 0)
+        goto unsuccessful_request;
       break;
+
     case DELREQ:
       error = kvserver_del_check(server, reqmsg->key);
       if (error == 0) {
@@ -182,20 +167,27 @@ void kvserver_handle_no_tpc(kvserver_t *server, kvmessage_t *reqmsg,
           respmsg->type = RESP;
           respmsg->message = MSG_SUCCESS;
         }
-      } 
-      if (error != 0) {
-        respmsg->type = RESP;
-        respmsg->message = GETMSG(error); 
       }
+      if (error < 0)
+        goto unsuccessful_request;
       break;
+
     case INFO:
-      respmsg->type = INFO; // is this right?
+      respmsg->type = INFO;
       respmsg->message = kvserver_get_info_message(server);
       break;
     default:
       respmsg->type = RESP;
       respmsg->message = ERRMSG_NOT_IMPLEMENTED;
+      break;
   }
+
+return;
+
+/* All unsuccessful requests will be handled in the same manner. */
+unsuccessful_request:
+  respmsg->type = RESP;
+  respmsg->message = GETMSG(error); 
 }
 /* Generic entrypoint for this SERVER. Takes in a socket on SOCKFD, which
  * should already be connected to an incoming request. Processes the request

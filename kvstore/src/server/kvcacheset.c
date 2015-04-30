@@ -61,11 +61,11 @@ int kvcacheset_put(kvcacheset_t *cacheset, char *key, char *value) {
   struct kvcacheentry *e;
   HASH_FIND_STR(cacheset->entries, key, e);
 
-  if (e == NULL) {
+  if (e == NULL) { // cacheset does NOT contain this key already
     if (cacheset->num_entries < cacheset->elem_per_set) {
       cacheset->num_entries++;
     } else {
-      // evict element: use 2nd change algorithm here
+      // evict an element: use 2nd change algorithm here
       while (true) {
         struct kvcacheentry *candidate = cacheset->head;
         DL_DELETE(cacheset->head, candidate);
@@ -81,54 +81,49 @@ int kvcacheset_put(kvcacheset_t *cacheset, char *key, char *value) {
     }
 
     e = (struct kvcacheentry *) malloc(sizeof(struct kvcacheentry));
-    if (e == NULL) {
-      pthread_rwlock_unlock(&cacheset->lock);
-      return -1; // some type of error: running out of memory?
-    }
+    if (e == NULL)
+      goto malloc_error;
     e->key = (char *) malloc((strlen(key) + 1) * sizeof(char));
-    if (!e->key) {
-      pthread_rwlock_unlock(&cacheset->lock);
-      return -1; // some type of error: running out of memory?
-    }
+    if (e->key == NULL)
+      goto malloc_error;
+
     strcpy(e->key, key);
     HASH_ADD_STR(cacheset->entries, key, e);
     DL_APPEND(cacheset->head, e);
     e->refbit = false;
   } else {
-    free(e->value);
+    free(e->value); // the value is about to be overwritten
     e->refbit = true;
   }
+
   e->value = (char *) malloc((strlen(value) + 1) * sizeof(char));
-  if (!e->value) {
-    pthread_rwlock_unlock(&cacheset->lock);
-    return -1; // some type of error: running out of memory?
-  }
+  if (e->value == NULL)
+    goto malloc_error;
+
   strcpy(e->value, value);
 
   pthread_rwlock_unlock(&cacheset->lock);
   return 0;
+
+malloc_error:
+  pthread_rwlock_unlock(&cacheset->lock);
+  return -1;
 }
 
 /* Deletes the entry corresponding to KEY from CACHESET. Returns 0 if
  * successful, else returns a negative error code. */
 int kvcacheset_del(kvcacheset_t *cacheset, char *key) {
   // OUR CODE HERE
-  // 1. We might not need this if hash_find_str takes care of this for us on empty hashtables
-  // 2. Should we support synchronization here and wait until something is deleted? i srsly doubt this option
-  /*
-  if (cacheset->num_entries == 0) {
-    return -1;
-  }
-  */
   struct kvcacheentry *e;
   
   pthread_rwlock_wrlock(&cacheset->lock);
 
   HASH_FIND_STR(cacheset->entries, key, e);
-  if (e == NULL) {
+
+  if (e == NULL)
     return ERRNOKEY;
-  }
-  HASH_DEL(cacheset->entries, e); // see if this was successful? If we need to, then check if not successful and exit on error
+
+  HASH_DEL(cacheset->entries, e);
   DL_DELETE(cacheset->head, e);
   free(e);
   cacheset->num_entries--;
@@ -142,7 +137,7 @@ void kvcacheset_clear(kvcacheset_t *cacheset) {
   struct kvcacheentry *elt, *tmp;
   DL_FOREACH_SAFE(cacheset->head, elt, tmp) {
     DL_DELETE(cacheset->head, elt);
-    free(elt); // i think we need this here
+    free(elt);
   }
 
 }
