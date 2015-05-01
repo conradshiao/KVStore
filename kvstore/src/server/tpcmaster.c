@@ -7,6 +7,10 @@
 #include "socket_server.h"
 #include "time.h"
 #include "tpcmaster.h"
+// OUR CODE HERE
+#include <stdbool.h>
+
+static int port_cmp(tpcslave_t *a, tpcslave_t *b);
 
 /* Initializes a tpcmaster. Will return 0 if successful, or a negative error
  * code if not. SLAVE_CAPACITY indicates the maximum number of slaves that
@@ -53,12 +57,65 @@ int64_t hash_64_bit(char *s) {
  * will have MSG_SUCCESS if registration succeeds, or an error otherwise.
  *
  * Checkpoint 2 only. */
-void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg,
-    kvmessage_t *respmsg) {
-  // respmsg->message = ERRMSG_NOT_IMPLEMENTED;
-  if (reqmsg == NULL || respmsg == NULL)
+void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg, kvmessage_t *respmsg) {
+  // OUR CODE HERE
+  if (respmsg == NULL || reqmsg == NULL)
     return;
 
+  char *port = reqmsg->key;
+  char *hostname = reqmsg->value;
+  int port_strlen = strlen(reqmsg->key);
+  int hostname_strlen = strlen(reqmsg->value);
+
+  char *format_string = (char *) malloc((port_strlen + 1 + hostname_strlen + 1) * sizeof(char));
+  if (format_string == NULL) {
+    respmsg->message = ERRMSG_GENERIC_ERROR;
+    return;
+  }
+
+  strcpy(format_string, port);
+  strcat(format_string, ":");
+  strcat(format_string, hostname);
+  int64_t hash_val = hash_64_bit(format_string);
+  free(format_string);
+  /* Check to see if slave is still in the list. */
+  tpcslave_t *elt;
+  DL_FOREACH(master->slaves_head, elt) {
+    if (elt->id > hash_val)
+      break;
+    if (elt->id == hash_val) { // slave already in list
+      respmsg->message = MSG_SUCCESS;
+      return;
+    }
+  }
+
+  if (slave_count == slave_capacity) { // is this an error?
+    respmsg->message = ERRMSG_GENERIC_ERROR;
+    return;
+  } else {
+    master->slave_count++;
+  }
+
+  tpcslave_t *slave = (tpcslave_t *) malloc(sizeof(tpcslave_t));
+  if (slave == NULL) {
+    respmsg->message = ERRMSG_GENERIC_ERROR;
+    return;
+  }
+
+  /* Filling in appropriate fields of tpcslave_t */
+  slave->id = hash_val;
+  slave->host = (char *) malloc((hostname_strlen + 1) * sizeof(char));
+  strcpy(slave->host, hostname);
+  char *ptr;
+  slave->port = strtol(port, &ptr, 10);
+
+  //FIXME: where do i set the kvserver_t struct to stuff into the slave?
+  // DL_SORT(master->slaves_head, port_cmp);
+}
+
+/* Comparator function to be used to sort our DL list of tpcslave_t slaves. */
+static int port_cmp(tpcslave_t *a, tpcslave_t *b) {
+  return a->id < b->id;
 }
 
 /* Hashes KEY and finds the first slave that should contain it.
@@ -68,16 +125,34 @@ void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg,
  *
  * Checkpoint 2 only. */
 tpcslave_t *tpcmaster_get_primary(tpcmaster_t *master, char *key) {
-  return NULL;
+  // OUR CODE HERE: if the list of slaves are sorted by id
+  int64_t hash_val = hash_64_bit(key);
+  tpslave_t *elt;
+  DL_FOREACH(master->slaves_head, elt)
+    {
+      if (elt->id > hash_val)
+        return elt;
+    }
+  return master->slaves_head;
 }
 
 /* Returns the slave whose ID comes after PREDECESSOR's, sorted
  * in increasing order.
  *
  * Checkpoint 2 only. */
-tpcslave_t *tpcmaster_get_successor(tpcmaster_t *master,
-    tpcslave_t *predecessor) {
-  return NULL;
+tpcslave_t *tpcmaster_get_successor(tpcmaster_t *master, tpcslave_t *predecessor) {
+  // OUR CODE HERE: if the list of slaves are sorted by id
+  tpslave_t *elt;
+  bool saw_successor = false;
+  DL_FOREACH(master->slaves_head, elt)
+    {
+      if (saw_successor)
+        return elt;
+      if (elt == predecessor)
+        saw_successor = true;
+    }
+  return master->slaves_head;
+  // i'm assuming we're guaranteed that predecessor is always in our list...
 }
 
 /* Handles an incoming GET request REQMSG, and populates the appropriate fields
@@ -150,7 +225,6 @@ void tpcmaster_info(tpcmaster_t *master, kvmessage_t *reqmsg,
   char *msg = malloc(strlen(info));
   strcpy(msg, info);
   return msg;
-}
 }
 
 /* Generic entrypoint for this MASTER. Takes in a socket on SOCKFD, which
