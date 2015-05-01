@@ -35,6 +35,8 @@ typedef struct tpcslave {
   unsigned int port;            /* The port where this slave can be reached. */
   struct tpcslave *next;        /* The next slave in the list of slaves. */
   struct tpcslave *prev;        /* The previous slave in the list of slaves. */
+  // OUR CODE HERE
+  kvserver_t server;
 } tpcslave_t;
 
 struct tpcmaster;

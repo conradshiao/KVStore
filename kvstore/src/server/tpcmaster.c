@@ -89,7 +89,7 @@ void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg, kvmessage_t *r
     }
   }
 
-  if (slave_count == slave_capacity) { // is this an error?
+  if (master->slave_count == master->slave_capacity) { // is this an error?
     respmsg->message = ERRMSG_GENERIC_ERROR;
     return;
   } else {
@@ -127,7 +127,7 @@ static int port_cmp(tpcslave_t *a, tpcslave_t *b) {
 tpcslave_t *tpcmaster_get_primary(tpcmaster_t *master, char *key) {
   // OUR CODE HERE: if the list of slaves are sorted by id
   int64_t hash_val = hash_64_bit(key);
-  tpslave_t *elt;
+  tpcslave_t *elt;
   DL_FOREACH(master->slaves_head, elt)
     {
       if (elt->id > hash_val)
@@ -142,7 +142,7 @@ tpcslave_t *tpcmaster_get_primary(tpcmaster_t *master, char *key) {
  * Checkpoint 2 only. */
 tpcslave_t *tpcmaster_get_successor(tpcmaster_t *master, tpcslave_t *predecessor) {
   // OUR CODE HERE: if the list of slaves are sorted by id
-  tpslave_t *elt;
+  tpcslave_t *elt;
   bool saw_successor = false;
   DL_FOREACH(master->slaves_head, elt)
     {
@@ -167,14 +167,14 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
     return;
   }
   char *value;
-  if (kvcache_get(master->cache, reqmsg->key, &value) == 0) {
+  if (kvcache_get(&master->cache, reqmsg->key, &value) == 0) {
     respmsg->type = GETRESP;
     respmsg->key = reqmsg->key;
     respmsg->value = value;
   } else {
     tpcslave_t *slave = tpcmaster_get_primary(master, reqmsg->key);
-    kvserver_get(slave->server, reqmsg->key, &value);
-    kvcache_put(master->cache, reqmsg->key, value);
+    kvserver_get(&slave->server, reqmsg->key, &value);
+    kvcache_put(&master->cache, reqmsg->key, value);
   }
 
 }
@@ -197,12 +197,13 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
  * Checkpoint 2 only. */
 void tpcmaster_handle_tpc(tpcmaster_t *master, kvmessage_t *reqmsg,
     kvmessage_t *respmsg, callback_t callback) {
-  if (reqmsg == NULL || respmsg == NULL || master->slave_count < master->slave_capacity)
+  /*if (reqmsg == NULL || respmsg == NULL || master->slave_count < master->slave_capacity)
     return; 
   if (reqmsg == PUTREQ || reqmsg == DELREQ) {
     while (delay <)
     phase0(master, reqmsg, respmsg);
-  }
+  } */
+  respmsg->message = ERRMSG_NOT_IMPLEMENTED;
 }
 
 /* Handles an incoming kvmessage REQMSG, and populates the appropriate fields
@@ -218,13 +219,16 @@ void tpcmaster_info(tpcmaster_t *master, kvmessage_t *reqmsg,
   time_t ltime = time(NULL);
   strcpy(info, asctime(localtime(&ltime)));
   strcpy(info, "Slaves:\n");
+  tpcslave_t *elt;
   DL_FOREACH(master->slaves_head, elt) {
-    sprintf(buf, "{%s, %d}\n", elt->server->hostname, elt->server->port);
+    kvserver_t *server = &elt->server;
+    sprintf(buf, "{%s, %d}\n", server->hostname, server->port);
     strcat(info, buf);
   }
   char *msg = malloc(strlen(info));
   strcpy(msg, info);
-  return msg;
+  //return msg;
+  respmsg->message = msg;
 }
 
 /* Generic entrypoint for this MASTER. Takes in a socket on SOCKFD, which
@@ -261,8 +265,8 @@ void tpcmaster_handle(tpcmaster_t *master, int sockfd, callback_t callback) {
 void tpcmaster_clear_cache(tpcmaster_t *tpcmaster) {
   kvcache_clear(&tpcmaster->cache);
 }
-
-void phase0(tcpmaster_t *tpcmaster, kvmessage_t reqmsg, kvmessage_t respmsg) {
+/*
+void phase0(tpcmaster_t *tpcmaster, kvmessage_t reqmsg, kvmessage_t respmsg) {
   switch (reqmsg->type) {
     case PUTREQ: {
       kvmessage_send()
@@ -276,7 +280,7 @@ void phase0(tcpmaster_t *tpcmaster, kvmessage_t reqmsg, kvmessage_t respmsg) {
   }
 }
 
-void phase1(tcpmaster_t *tpcmaster, kvmessage_t reqmsg, kvmessage_t respmsg) {
+void phase1(tpcmaster_t *tpcmaster, kvmessage_t reqmsg, kvmessage_t respmsg) {
   switch(reqmsg->type) {
     case VOTE_COMMIT: {
 
@@ -290,9 +294,9 @@ void phase1(tcpmaster_t *tpcmaster, kvmessage_t reqmsg, kvmessage_t respmsg) {
   }
 }
 
-void phase2(tcpmaster_t *tpcmaster, kvmessage_t reqmsg, kvmessage_t respmsg) {
+void phase2(tpcmaster_t *tpcmaster, kvmessage_t reqmsg, kvmessage_t respmsg) {
   if (reqmsg->type == ACK)
      
   }
 }
-
+*/

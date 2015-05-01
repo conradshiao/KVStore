@@ -9,6 +9,8 @@
 #include "kvserver.h"
 #include "tpclog.h"
 #include "socket_server.h"
+// OUR CODE HERE
+#include <math.h>
 
 /* Initializes a kvserver. Will return 0 if successful, or a negative error
  * code if not. DIRNAME is the directory which should be used to store entries
@@ -54,7 +56,8 @@ int kvserver_register_master(kvserver_t *server, int sockfd) {
   if (reqmsg->key == NULL)
     return -1;
   strcpy(reqmsg->key, server->hostname);
-  reqmsg->value = (char *) malloc((int)((ceil(log10(server->port))+1) * sizeof(char)));
+  //reqmsg->value = (char *) malloc((int)((ceil(log10(server->port))+1) * sizeof(char)));
+  reqmsg->value = (char *) malloc(sizeof(char) * 16); // max number is 2^16 - 1
   sprintf(reqmsg->value, "%d", server->port);
   kvmessage_send(reqmsg, sockfd);
   return 0;
