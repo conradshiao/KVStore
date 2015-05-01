@@ -45,6 +45,18 @@ int kvserver_init(kvserver_t *server, char *dirname, unsigned int num_sets,
  *
  * Checkpoint 2 only. */
 int kvserver_register_master(kvserver_t *server, int sockfd) {
+  kvmessage_t *reqmsg = (kvmessage_t *) malloc(sizeof(kvmessage_t));
+  if (reqmsg == NULL) {
+    return -1;
+  }
+  reqmsg->type = REGISTER;
+  reqmsg->key = (char *) malloc((strlen(server->hostname) + 1) * sizeof(char));
+  if (reqmsg->key == NULL)
+    return -1;
+  strcpy(reqmsg->key, server->hostname);
+  reqmsg->value = (char *) malloc((int)((ceil(log10(server->port))+1) * sizeof(char)));
+  sprintf(reqmsg->value, "%d", server->port);
+  kvmessage_send(reqmsg, sockfd);
   return 0;
 }
 

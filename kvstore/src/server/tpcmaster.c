@@ -55,7 +55,10 @@ int64_t hash_64_bit(char *s) {
  * Checkpoint 2 only. */
 void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg,
     kvmessage_t *respmsg) {
-  respmsg->message = ERRMSG_NOT_IMPLEMENTED;
+  // respmsg->message = ERRMSG_NOT_IMPLEMENTED;
+  if (reqmsg == NULL || respmsg == NULL)
+    return;
+
 }
 
 /* Hashes KEY and finds the first slave that should contain it.
@@ -84,7 +87,21 @@ tpcslave_t *tpcmaster_get_successor(tpcmaster_t *master,
  * Checkpoint 2 only. */
 void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
     kvmessage_t *respmsg) {
-  respmsg->message = ERRMSG_NOT_IMPLEMENTED;
+  // respmsg->message = ERRMSG_NOT_IMPLEMENTED;
+  if (reqmsg == NULL || respmsg == NULL) {
+    return;
+  }
+  char *value;
+  if (kvcache_get(master->cache, reqmsg->key, &value) == 0) {
+    respmsg->type = GETRESP;
+    respmsg->key = reqmsg->key;
+    respmsg->value = value;
+  } else {
+    tpcslave_t *slave = tpcmaster_get_primary(master, reqmsg->key);
+    kvserver_get(slave->server, reqmsg->key, &value);
+    kvcache_put(master->cache, reqmsg->key, value);
+  }
+
 }
 
 /* Handles an incoming TPC request REQMSG, and populates the appropriate fields
@@ -105,7 +122,12 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
  * Checkpoint 2 only. */
 void tpcmaster_handle_tpc(tpcmaster_t *master, kvmessage_t *reqmsg,
     kvmessage_t *respmsg, callback_t callback) {
-  respmsg->message = ERRMSG_NOT_IMPLEMENTED;
+  if (reqmsg == NULL || respmsg == NULL || master->slave_count < master->slave_capacity)
+    return; 
+  if (reqmsg == PUTREQ || reqmsg == DELREQ) {
+    while (delay <)
+    phase0(master, reqmsg, respmsg);
+  }
 }
 
 /* Handles an incoming kvmessage REQMSG, and populates the appropriate fields
@@ -116,7 +138,19 @@ void tpcmaster_handle_tpc(tpcmaster_t *master, kvmessage_t *reqmsg,
  * Checkpoint 2 only. */
 void tpcmaster_info(tpcmaster_t *master, kvmessage_t *reqmsg,
     kvmessage_t *respmsg) {
-  respmsg->message = ERRMSG_NOT_IMPLEMENTED;
+  char buf[256];
+  char *info = (char *) malloc((master->slave_count * 256 + 100) * sizeof(char));
+  time_t ltime = time(NULL);
+  strcpy(info, asctime(localtime(&ltime)));
+  strcpy(info, "Slaves:\n");
+  DL_FOREACH(master->slaves_head, elt) {
+    sprintf(buf, "{%s, %d}\n", elt->server->hostname, elt->server->port);
+    strcat(info, buf);
+  }
+  char *msg = malloc(strlen(info));
+  strcpy(msg, info);
+  return msg;
+}
 }
 
 /* Generic entrypoint for this MASTER. Takes in a socket on SOCKFD, which
@@ -153,3 +187,38 @@ void tpcmaster_handle(tpcmaster_t *master, int sockfd, callback_t callback) {
 void tpcmaster_clear_cache(tpcmaster_t *tpcmaster) {
   kvcache_clear(&tpcmaster->cache);
 }
+
+void phase0(tcpmaster_t *tpcmaster, kvmessage_t reqmsg, kvmessage_t respmsg) {
+  switch (reqmsg->type) {
+    case PUTREQ: {
+      kvmessage_send()
+    }
+    case DELREQ: {
+
+    }
+    default: {
+      respmsg->message = ERRMSG_NOT_IMPLEMENTED;
+    }
+  }
+}
+
+void phase1(tcpmaster_t *tpcmaster, kvmessage_t reqmsg, kvmessage_t respmsg) {
+  switch(reqmsg->type) {
+    case VOTE_COMMIT: {
+
+    }
+    case VOTE_ABORT: {
+      master->commit = false;
+    }
+    default: {
+      respmsg->message = ERRMSG_NOT_IMPLEMENTED;
+    }
+  }
+}
+
+void phase2(tcpmaster_t *tpcmaster, kvmessage_t reqmsg, kvmessage_t respmsg) {
+  if (reqmsg->type == ACK)
+     
+  }
+}
+

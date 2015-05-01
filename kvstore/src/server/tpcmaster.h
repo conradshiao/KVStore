@@ -50,6 +50,7 @@ typedef struct tpcmaster {
   pthread_rwlock_t slave_lock;  /* A lock used to protect the list of slaves. */
   kvcache_t cache;              /* The cache this master will use. */
   tpchandle_t handle;           /* The function this master will use to handle requests. */
+  bool commit;                  /* True if all slaves commit, false if one slave aborts */
 } tpcmaster_t;
 
 int tpcmaster_init(tpcmaster_t *master, unsigned int slave_capacity,
