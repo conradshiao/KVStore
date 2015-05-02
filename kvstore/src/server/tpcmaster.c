@@ -173,8 +173,11 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
     respmsg->value = value;
   } else {
     tpcslave_t *slave = tpcmaster_get_primary(master, reqmsg->key);
-    kvserver_get(&slave->server, reqmsg->key, &value);
-    kvcache_put(&master->cache, reqmsg->key, value);
+    int fd = connect_to(slave->host, slave->port);
+    kvmessage_send(reqmsg, fd);
+    respmsg = kvmessage_parse(fd);
+    if (respmsg->message == MSG_SUCCESS)
+      kvcache_put(&master->cache, respmsg->key, respmsg->value);
   }
 
 }
@@ -197,12 +200,24 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
  * Checkpoint 2 only. */
 void tpcmaster_handle_tpc(tpcmaster_t *master, kvmessage_t *reqmsg,
     kvmessage_t *respmsg, callback_t callback) {
-  /*if (reqmsg == NULL || respmsg == NULL || master->slave_count < master->slave_capacity)
+  if (reqmsg == NULL || respmsg == NULL || master->slave_count < master->slave_capacity)
     return; 
-  if (reqmsg == PUTREQ || reqmsg == DELREQ) {
-    while (delay <)
-    phase0(master, reqmsg, respmsg);
-  } */
+  ASSERT (reqmsg == PUTREQ || reqmsg == DELREQ);
+  if (kvcache_get(&master->cache, reqmsg->key, &value) == 0) {
+
+  } else {
+    tpcslave_t *slave1 = tpcmaster_get_primary(master, respmsg->key);
+    kvmessage_t vote1 = phase1(master, slave1);
+    tpcslave_t slave2 = tpcmaster_get_successor(master, slave1);
+    kvmessage_t vote1 = phase1(master, slave2);
+    if (vote1->type == VOTE_COMMIT && vote2->type == VOTE_COMMIT) {
+      kvmessage_t *temp;
+      while (temp->type != ACK)
+        temp = phase2(master, slave1);
+    } else {
+
+    }
+  }
   respmsg->message = ERRMSG_NOT_IMPLEMENTED;
 }
 
@@ -265,33 +280,19 @@ void tpcmaster_handle(tpcmaster_t *master, int sockfd, callback_t callback) {
 void tpcmaster_clear_cache(tpcmaster_t *tpcmaster) {
   kvcache_clear(&tpcmaster->cache);
 }
-/*
-void phase0(tpcmaster_t *tpcmaster, kvmessage_t reqmsg, kvmessage_t respmsg) {
-  switch (reqmsg->type) {
-    case PUTREQ: {
-      kvmessage_send()
-    }
-    case DELREQ: {
 
-    }
-    default: {
-      respmsg->message = ERRMSG_NOT_IMPLEMENTED;
-    }
+
+/* client to master */
+kvmessage_t *phase1(tpcmaster_t *tpcmaster, tpcslave_t *slave) {
+  int fd = connect_to(slave->host, slave->port);
+  kvmessage_send(reqmsg, fd);
+  kvmessage_t *temp = kvmessage_parse(fd);
+  if (temp->type == VOTE_COMMIT) {
+
+  } else if (temp->type == VOTE_ABORT) {
+    
   }
-}
-
-void phase1(tpcmaster_t *tpcmaster, kvmessage_t reqmsg, kvmessage_t respmsg) {
-  switch(reqmsg->type) {
-    case VOTE_COMMIT: {
-
-    }
-    case VOTE_ABORT: {
-      master->commit = false;
-    }
-    default: {
-      respmsg->message = ERRMSG_NOT_IMPLEMENTED;
-    }
-  }
+  return temp;
 }
 
 void phase2(tpcmaster_t *tpcmaster, kvmessage_t reqmsg, kvmessage_t respmsg) {
@@ -299,4 +300,3 @@ void phase2(tpcmaster_t *tpcmaster, kvmessage_t reqmsg, kvmessage_t respmsg) {
      
   }
 }
-*/

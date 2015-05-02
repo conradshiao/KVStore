@@ -36,7 +36,7 @@ typedef struct tpcslave {
   struct tpcslave *next;        /* The next slave in the list of slaves. */
   struct tpcslave *prev;        /* The previous slave in the list of slaves. */
   // OUR CODE HERE
-  kvserver_t server;
+  // kvserver_t server;
 } tpcslave_t;
 
 struct tpcmaster;
