@@ -10,7 +10,7 @@
 #include "tpclog.h"
 #include "socket_server.h"
 // OUR CODE HERE
-#include <math.h>
+#define PORT_NUM_LENGTH 16
 
 /* Initializes a kvserver. Will return 0 if successful, or a negative error
  * code if not. DIRNAME is the directory which should be used to store entries
@@ -47,17 +47,18 @@ int kvserver_init(kvserver_t *server, char *dirname, unsigned int num_sets,
  *
  * Checkpoint 2 only. */
 int kvserver_register_master(kvserver_t *server, int sockfd) {
+  // OUR CODE HERE
   kvmessage_t *reqmsg = (kvmessage_t *) malloc(sizeof(kvmessage_t));
   if (reqmsg == NULL) {
     return -1;
   }
   reqmsg->type = REGISTER;
   reqmsg->key = (char *) malloc((strlen(server->hostname) + 1) * sizeof(char));
-  if (reqmsg->key == NULL)
+  if (reqmsg->key == NULL) {
     return -1;
+  }
   strcpy(reqmsg->key, server->hostname);
-  //reqmsg->value = (char *) malloc((int)((ceil(log10(server->port))+1) * sizeof(char)));
-  reqmsg->value = (char *) malloc(sizeof(char) * 16); // max number is 2^16 - 1
+  reqmsg->value = (char *) malloc(sizeof(char) * PORT_NUM_LENGTH); // max number is 2^16 - 1
   sprintf(reqmsg->value, "%d", server->port);
   kvmessage_send(reqmsg, sockfd);
   return 0;

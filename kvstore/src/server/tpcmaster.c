@@ -10,7 +10,11 @@
 // OUR CODE HERE
 #include <stdbool.h>
 
+#define MAX_INFOLINE_LENGTH 256
+
 static int port_cmp(tpcslave_t *a, tpcslave_t *b);
+
+void phase1(tpcmaster_t *tpcmaster, kvmessage_t reqmsg, kvmessage_t respmsg);
 
 /* Initializes a tpcmaster. Will return 0 if successful, or a negative error
  * code if not. SLAVE_CAPACITY indicates the maximum number of slaves that
@@ -59,9 +63,9 @@ int64_t hash_64_bit(char *s) {
  * Checkpoint 2 only. */
 void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg, kvmessage_t *respmsg) {
   // OUR CODE HERE
-  if (respmsg == NULL || reqmsg == NULL)
+  if (respmsg == NULL || reqmsg == NULL) {
     return;
-
+  }
   char *port = reqmsg->key;
   char *hostname = reqmsg->value;
   int port_strlen = strlen(reqmsg->key);
@@ -81,8 +85,9 @@ void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg, kvmessage_t *r
   /* Check to see if slave is still in the list. */
   tpcslave_t *elt;
   DL_FOREACH(master->slaves_head, elt) {
-    if (elt->id > hash_val)
+    if (elt->id > hash_val) {
       break;
+    }
     if (elt->id == hash_val) { // slave already in list
       respmsg->message = MSG_SUCCESS;
       return;
@@ -108,6 +113,8 @@ void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg, kvmessage_t *r
   strcpy(slave->host, hostname);
   char *ptr;
   slave->port = strtol(port, &ptr, 10);
+  DL_APPEND(master->slaves_head, slave);
+  DL_SORT(master->slaves_head, port_cmp);
 
   //FIXME: where do i set the kvserver_t struct to stuff into the slave?
   // DL_SORT(master->slaves_head, port_cmp);
@@ -115,7 +122,7 @@ void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg, kvmessage_t *r
 
 /* Comparator function to be used to sort our DL list of tpcslave_t slaves. */
 static int port_cmp(tpcslave_t *a, tpcslave_t *b) {
-  return a->id < b->id;
+  return a->id < b->id; // FIXME not working as expected atm
 }
 
 /* Hashes KEY and finds the first slave that should contain it.
@@ -130,8 +137,11 @@ tpcslave_t *tpcmaster_get_primary(tpcmaster_t *master, char *key) {
   tpcslave_t *elt;
   DL_FOREACH(master->slaves_head, elt)
     {
-      if (elt->id > hash_val)
+      printf("slave's id port num is: %d\n", elt->id);
+      if (elt->id > hash_val) {
+        printf("karen: finished\n");
         return elt;
+      }
     }
   return master->slaves_head;
 }
@@ -146,11 +156,14 @@ tpcslave_t *tpcmaster_get_successor(tpcmaster_t *master, tpcslave_t *predecessor
   bool saw_successor = false;
   DL_FOREACH(master->slaves_head, elt)
     {
+      printf("slave's id port num is: %d\n", elt->id);
       if (saw_successor)
+        printf("karen: finished\n");
         return elt;
       if (elt == predecessor)
         saw_successor = true;
     }
+  printf("karen: finished\n");
   return master->slaves_head;
   // i'm assuming we're guaranteed that predecessor is always in our list...
 }
@@ -171,10 +184,14 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
     respmsg->type = GETRESP;
     respmsg->key = reqmsg->key;
     respmsg->value = value;
+    respmsg->message = MSG_SUCCESS;
   } else {
     tpcslave_t *slave = tpcmaster_get_primary(master, reqmsg->key);
-    kvserver_get(&slave->server, reqmsg->key, &value);
-    kvcache_put(&master->cache, reqmsg->key, value);
+    int error = 0;
+    error += kvserver_get(&slave->server, reqmsg->key, &value);
+    error += kvcache_put(&master->cache, reqmsg->key, value);
+    // if (error != 0) what do we do? does kvserver and kvcache_put take care of those things?
+    // i think they do take care of that. if they do, we won't need this error int
   }
 
 }
@@ -196,14 +213,14 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
  * 
  * Checkpoint 2 only. */
 void tpcmaster_handle_tpc(tpcmaster_t *master, kvmessage_t *reqmsg,
-    kvmessage_t *respmsg, callback_t callback) {
-  /*if (reqmsg == NULL || respmsg == NULL || master->slave_count < master->slave_capacity)
+                          kvmessage_t *respmsg, callback_t callback) {
+  if (reqmsg == NULL || respmsg == NULL)
     return; 
   if (reqmsg == PUTREQ || reqmsg == DELREQ) {
     while (delay <)
     phase0(master, reqmsg, respmsg);
-  } */
-  respmsg->message = ERRMSG_NOT_IMPLEMENTED;
+  }
+  //respmsg->message = ERRMSG_NOT_IMPLEMENTED;
 }
 
 /* Handles an incoming kvmessage REQMSG, and populates the appropriate fields
@@ -215,7 +232,7 @@ void tpcmaster_handle_tpc(tpcmaster_t *master, kvmessage_t *reqmsg,
 void tpcmaster_info(tpcmaster_t *master, kvmessage_t *reqmsg,
     kvmessage_t *respmsg) {
   char buf[256];
-  char *info = (char *) malloc((master->slave_count * 256 + 100) * sizeof(char));
+  char *info = (char *) malloc((master->slave_count * MAX_INFOLINE_LENGTH + 100) * sizeof(char));
   time_t ltime = time(NULL);
   strcpy(info, asctime(localtime(&ltime)));
   strcpy(info, "Slaves:\n");
