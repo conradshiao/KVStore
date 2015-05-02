@@ -202,19 +202,28 @@ void tpcmaster_handle_tpc(tpcmaster_t *master, kvmessage_t *reqmsg,
     kvmessage_t *respmsg, callback_t callback) {
   if (reqmsg == NULL || respmsg == NULL || master->slave_count < master->slave_capacity)
     return; 
-  ASSERT (reqmsg == PUTREQ || reqmsg == DELREQ);
+  ASSERT (reqmsg->type == PUTREQ || reqmsg->type == DELREQ);
   if (kvcache_get(&master->cache, reqmsg->key, &value) == 0) {
 
   } else {
     tpcslave_t *slave1 = tpcmaster_get_primary(master, respmsg->key);
-    kvmessage_t vote1 = phase1(master, slave1);
-    tpcslave_t slave2 = tpcmaster_get_successor(master, slave1);
-    kvmessage_t vote1 = phase1(master, slave2);
-    if (vote1->type == VOTE_COMMIT && vote2->type == VOTE_COMMIT) {
-      phase2(master, slave1);
-      phase2(master, slave2)
-      
+    phase1(master, slave1, reqmsg);
+    tpcslave_t slave2 = tpcmaster_get_successor(master, slave1, reqmsg);
+    phase1(master, slave2);
+    if (callback != NULL) callback(NULL);
+    kvmessage_t *globalmsg;
+    memset(globalmsg, 0, sizeof(kvmessage_t));
+    if (master->commit) {
+      globalmsg->type = VOTE_COMMIT;
+      respmsg->type = RESP;
+      respmsg->message = MSG_SUCCESS;
+    } else {
+      globalmsg->type = VOTE_ABORT;
+      respmsg->type = RESP;
+      // respmsg->message = GETMSG(error); how do i get the error?
     }
+    phase2(master, slave1, globalmsg);
+    phase2(master, slave2, globalmsg);
   }
 }
 
@@ -227,7 +236,7 @@ void tpcmaster_handle_tpc(tpcmaster_t *master, kvmessage_t *reqmsg,
 void tpcmaster_info(tpcmaster_t *master, kvmessage_t *reqmsg,
     kvmessage_t *respmsg) {
   char buf[256];
-  char *info = (char *) malloc((master->slave_count * 256 + 100) * sizeof(char));
+  char *info = (char *) malloc((master->slave_count * 256 + 256) * sizeof(char));
   time_t ltime = time(NULL);
   strcpy(info, asctime(localtime(&ltime)));
   strcpy(info, "Slaves:\n");
@@ -256,6 +265,10 @@ void tpcmaster_handle(tpcmaster_t *master, int sockfd, callback_t callback) {
     respmsg.key = calloc(1, strlen(reqmsg->key));
     strcpy(respmsg.key, reqmsg->key);
   }
+
+  // OUR CODE HERE
+  master->client_req = reqmsg;
+
   if (reqmsg->type == INFO) {
     tpcmaster_info(master, reqmsg, &respmsg);
   } else if (reqmsg == NULL || reqmsg->key == NULL) {
@@ -279,26 +292,31 @@ void tpcmaster_clear_cache(tpcmaster_t *tpcmaster) {
 }
 
 
-/* client to master */
-kvmessage_t *phase1(tpcmaster_t *tpcmaster, tpcslave_t *slave, kvmessage_t *reqmsg) {
+/* Send and receive message to and from slave in phase 1 of TPC */
+void phase1(tpcmaster_t *tpcmaster, tpcslave_t *slave, kvmessage_t *reqmsg, callback_t callback) {
   int fd = connect_to(slave->host, slave->port);
+  if (fd == -1 && callback != NULL) {
+    callback(NULL);
+  }
   kvmessage_send(reqmsg, fd);
   kvmessage_t *temp = kvmessage_parse(fd);
   if (temp->type == VOTE_COMMIT) {
 
   } else if (temp->type == VOTE_ABORT) {
-    
+    master->commit = false;    
   }
-  return temp;
 }
 
-kvmessage_t *phase2(tpcmaster_t *tpcmaster, tpcslave_t *slave, kvmessage_t reqmsg) {
+/* Send and receive message to and from slave in phase 2 of TPC */
+void phase2(tpcmaster_t *tpcmaster, tpcslave_t *slave, kvmessage_t *reqmsg, callback_t callback) {
   int fd = connect_to(slave->host, slave->port);
+  if (fd == -1 && callback != NULL) {
+    callback(NULL);
+  }
   kvmessage_send(reqmsg, fd);
   kvmessage_t *temp = kvmessage_parse(fd);
   while(temp->type != ACK) {
     kvmessage_send(reqmsg, fd);
-    kvmessage_t *temp = kvmessage_parse(fd);
+    temp = kvmessage_parse(fd);
   }
-  return temp;
 }
