@@ -211,14 +211,11 @@ void tpcmaster_handle_tpc(tpcmaster_t *master, kvmessage_t *reqmsg,
     tpcslave_t slave2 = tpcmaster_get_successor(master, slave1);
     kvmessage_t vote1 = phase1(master, slave2);
     if (vote1->type == VOTE_COMMIT && vote2->type == VOTE_COMMIT) {
-      kvmessage_t *temp;
-      while (temp->type != ACK)
-        temp = phase2(master, slave1);
-    } else {
-
+      phase2(master, slave1);
+      phase2(master, slave2)
+      
     }
   }
-  respmsg->message = ERRMSG_NOT_IMPLEMENTED;
 }
 
 /* Handles an incoming kvmessage REQMSG, and populates the appropriate fields
@@ -283,7 +280,7 @@ void tpcmaster_clear_cache(tpcmaster_t *tpcmaster) {
 
 
 /* client to master */
-kvmessage_t *phase1(tpcmaster_t *tpcmaster, tpcslave_t *slave) {
+kvmessage_t *phase1(tpcmaster_t *tpcmaster, tpcslave_t *slave, kvmessage_t *reqmsg) {
   int fd = connect_to(slave->host, slave->port);
   kvmessage_send(reqmsg, fd);
   kvmessage_t *temp = kvmessage_parse(fd);
@@ -295,8 +292,13 @@ kvmessage_t *phase1(tpcmaster_t *tpcmaster, tpcslave_t *slave) {
   return temp;
 }
 
-void phase2(tpcmaster_t *tpcmaster, kvmessage_t reqmsg, kvmessage_t respmsg) {
-  if (reqmsg->type == ACK)
-     
+kvmessage_t *phase2(tpcmaster_t *tpcmaster, tpcslave_t *slave, kvmessage_t reqmsg) {
+  int fd = connect_to(slave->host, slave->port);
+  kvmessage_send(reqmsg, fd);
+  kvmessage_t *temp = kvmessage_parse(fd);
+  while(temp->type != ACK) {
+    kvmessage_send(reqmsg, fd);
+    kvmessage_t *temp = kvmessage_parse(fd);
   }
+  return temp;
 }
