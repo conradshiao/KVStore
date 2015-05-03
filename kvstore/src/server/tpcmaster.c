@@ -14,7 +14,8 @@
 
 static int port_cmp(tpcslave_t *a, tpcslave_t *b);
 
-void phase1(tpcmaster_t *tpcmaster, kvmessage_t reqmsg, kvmessage_t respmsg);
+void phase1(tpcmaster_t *tpcmaster, tpcslave_t *slave, kvmessage_t *reqmsg, callback_t callback);
+void phase2(tpcmaster_t *tpcmaster, tpcslave_t *slave, kvmessage_t *reqmsg, callback_t callback);
 
 /* Initializes a tpcmaster. Will return 0 if successful, or a negative error
  * code if not. SLAVE_CAPACITY indicates the maximum number of slaves that
@@ -110,12 +111,16 @@ void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg, kvmessage_t *r
   /* Filling in appropriate fields of tpcslave_t */
   slave->id = hash_val;
   slave->host = (char *) malloc((hostname_strlen + 1) * sizeof(char));
+  if (slave->host == NULL) {
+    respmsg->message = ERRMSG_GENERIC_ERROR;
+    return;
+  }
   strcpy(slave->host, hostname);
   char *ptr;
   slave->port = strtol(port, &ptr, 10);
   DL_APPEND(master->slaves_head, slave);
   DL_SORT(master->slaves_head, port_cmp);
-
+  respmsg->message = MSG_SUCCESS;
   //FIXME: where do i set the kvserver_t struct to stuff into the slave?
   // DL_SORT(master->slaves_head, port_cmp);
 }
@@ -137,9 +142,8 @@ tpcslave_t *tpcmaster_get_primary(tpcmaster_t *master, char *key) {
   tpcslave_t *elt;
   DL_FOREACH(master->slaves_head, elt)
     {
-      printf("slave's id port num is: %d\n", elt->id);
+      //printf("slave's id port num is: %d\n", elt->id);
       if (elt->id > hash_val) {
-        printf("karen: finished\n");
         return elt;
       }
     }
@@ -156,14 +160,12 @@ tpcslave_t *tpcmaster_get_successor(tpcmaster_t *master, tpcslave_t *predecessor
   bool saw_successor = false;
   DL_FOREACH(master->slaves_head, elt)
     {
-      printf("slave's id port num is: %d\n", elt->id);
+      //printf("slave's id port num is: %d\n", elt->id);
       if (saw_successor)
-        printf("karen: finished\n");
         return elt;
       if (elt == predecessor)
         saw_successor = true;
     }
-  printf("karen: finished\n");
   return master->slaves_head;
   // i'm assuming we're guaranteed that predecessor is always in our list...
 }
@@ -187,11 +189,11 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
     respmsg->message = MSG_SUCCESS;
   } else {
     tpcslave_t *slave = tpcmaster_get_primary(master, reqmsg->key);
-    int error = 0;
-    error += kvserver_get(&slave->server, reqmsg->key, &value);
-    error += kvcache_put(&master->cache, reqmsg->key, value);
-    // if (error != 0) what do we do? does kvserver and kvcache_put take care of those things?
-    // i think they do take care of that. if they do, we won't need this error int
+    int fd = connect_to(slave->host, slave->port, 2);
+    kvmessage_send(reqmsg, fd);
+    respmsg = kvmessage_parse(fd);
+    if (strcmp(respmsg->message,MSG_SUCCESS) == 0)
+      kvcache_put(&master->cache, respmsg->key, respmsg->value);
   }
 
 }
@@ -213,14 +215,34 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
  * 
  * Checkpoint 2 only. */
 void tpcmaster_handle_tpc(tpcmaster_t *master, kvmessage_t *reqmsg,
-                          kvmessage_t *respmsg, callback_t callback) {
+    kvmessage_t *respmsg, callback_t callback) {
   if (reqmsg == NULL || respmsg == NULL)
     return; 
-  if (reqmsg == PUTREQ || reqmsg == DELREQ) {
-    while (delay <)
-    phase0(master, reqmsg, respmsg);
+  assert (reqmsg->type == PUTREQ || reqmsg->type == DELREQ);
+
+  char *value;
+  if (kvcache_get(&master->cache, reqmsg->key, &value) == 0) {
+
+  } else {
+    tpcslave_t *slave1 = tpcmaster_get_primary(master, respmsg->key);
+    phase1(master, slave1, reqmsg, callback);
+    tpcslave_t *slave2 = tpcmaster_get_successor(master, slave1);
+    phase1(master, slave2, reqmsg, callback);
+    if (callback != NULL) callback(NULL);
+    kvmessage_t globalmsg;
+    memset(&globalmsg, 0, sizeof(kvmessage_t));
+    if (master->commit) {
+      globalmsg.type = VOTE_COMMIT;
+      respmsg->type = RESP;
+      respmsg->message = MSG_SUCCESS;
+    } else {
+      globalmsg.type = VOTE_ABORT;
+      respmsg->type = RESP;
+      // respmsg->message = GETMSG(error); how do i get the error?
+    }
+    phase2(master, slave1, &globalmsg, callback);
+    phase2(master, slave2, &globalmsg, callback);
   }
-  //respmsg->message = ERRMSG_NOT_IMPLEMENTED;
 }
 
 /* Handles an incoming kvmessage REQMSG, and populates the appropriate fields
@@ -232,17 +254,16 @@ void tpcmaster_handle_tpc(tpcmaster_t *master, kvmessage_t *reqmsg,
 void tpcmaster_info(tpcmaster_t *master, kvmessage_t *reqmsg,
     kvmessage_t *respmsg) {
   char buf[256];
-  char *info = (char *) malloc((master->slave_count * MAX_INFOLINE_LENGTH + 100) * sizeof(char));
+  char *info = (char *) malloc((master->slave_count * MAX_INFOLINE_LENGTH + 256) * sizeof(char));
   time_t ltime = time(NULL);
   strcpy(info, asctime(localtime(&ltime)));
   strcpy(info, "Slaves:\n");
   tpcslave_t *elt;
   DL_FOREACH(master->slaves_head, elt) {
-    kvserver_t *server = &elt->server;
-    sprintf(buf, "{%s, %d}\n", server->hostname, server->port);
+    sprintf(buf, "{%s, %d}\n", elt->host, elt->port);
     strcat(info, buf);
   }
-  char *msg = malloc(strlen(info));
+  char *msg = malloc(strlen(info) * sizeof(char));
   strcpy(msg, info);
   //return msg;
   respmsg->message = msg;
@@ -261,6 +282,10 @@ void tpcmaster_handle(tpcmaster_t *master, int sockfd, callback_t callback) {
     respmsg.key = calloc(1, strlen(reqmsg->key));
     strcpy(respmsg.key, reqmsg->key);
   }
+
+  // OUR CODE HERE
+  master->client_req = *reqmsg;
+
   if (reqmsg->type == INFO) {
     tpcmaster_info(master, reqmsg, &respmsg);
   } else if (reqmsg == NULL || reqmsg->key == NULL) {
@@ -282,38 +307,33 @@ void tpcmaster_handle(tpcmaster_t *master, int sockfd, callback_t callback) {
 void tpcmaster_clear_cache(tpcmaster_t *tpcmaster) {
   kvcache_clear(&tpcmaster->cache);
 }
-/*
-void phase0(tpcmaster_t *tpcmaster, kvmessage_t reqmsg, kvmessage_t respmsg) {
-  switch (reqmsg->type) {
-    case PUTREQ: {
-      kvmessage_send()
-    }
-    case DELREQ: {
 
-    }
-    default: {
-      respmsg->message = ERRMSG_NOT_IMPLEMENTED;
-    }
+
+/* Send and receive message to and from slave in phase 1 of TPC */
+void phase1(tpcmaster_t *tpcmaster, tpcslave_t *slave, kvmessage_t *reqmsg, callback_t callback) {
+  int fd = connect_to(slave->host, slave->port, 2);
+  if (fd == -1 && callback != NULL) {
+    callback(NULL);
+  }
+  kvmessage_send(reqmsg, fd);
+  kvmessage_t *temp = kvmessage_parse(fd);
+  if (temp->type == VOTE_COMMIT) {
+
+  } else if (temp->type == VOTE_ABORT) {
+    tpcmaster->commit = false;    
   }
 }
 
-void phase1(tpcmaster_t *tpcmaster, kvmessage_t reqmsg, kvmessage_t respmsg) {
-  switch(reqmsg->type) {
-    case VOTE_COMMIT: {
-
-    }
-    case VOTE_ABORT: {
-      master->commit = false;
-    }
-    default: {
-      respmsg->message = ERRMSG_NOT_IMPLEMENTED;
-    }
+/* Send and receive message to and from slave in phase 2 of TPC */
+void phase2(tpcmaster_t *tpcmaster, tpcslave_t *slave, kvmessage_t *reqmsg, callback_t callback) {
+  int fd = connect_to(slave->host, slave->port, 2);
+  if (fd == -1 && callback != NULL) {
+    callback(NULL);
+  }
+  kvmessage_send(reqmsg, fd);
+  kvmessage_t *temp = kvmessage_parse(fd);
+  while(temp->type != ACK) {
+    kvmessage_send(reqmsg, fd);
+    temp = kvmessage_parse(fd);
   }
 }
-
-void phase2(tpcmaster_t *tpcmaster, kvmessage_t reqmsg, kvmessage_t respmsg) {
-  if (reqmsg->type == ACK)
-     
-  }
-}
-*/

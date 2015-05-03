@@ -28,6 +28,12 @@
 
 typedef void (*callback_t)(void*);
 
+/*typedef struct tpcstate {
+  int state;
+}; */
+
+
+
 /* A struct used to represent the slaves which this TPC Master is aware of. */
 typedef struct tpcslave {
   int64_t id;                   /* The unique ID for this slave. */
@@ -36,7 +42,7 @@ typedef struct tpcslave {
   struct tpcslave *next;        /* The next slave in the list of slaves. */
   struct tpcslave *prev;        /* The previous slave in the list of slaves. */
   // OUR CODE HERE
-  kvserver_t server;
+  // kvserver_t server;
 } tpcslave_t;
 
 struct tpcmaster;
@@ -53,6 +59,7 @@ typedef struct tpcmaster {
   kvcache_t cache;              /* The cache this master will use. */
   tpchandle_t handle;           /* The function this master will use to handle requests. */
   bool commit;                  /* True if all slaves commit, false if one slave aborts */
+  kvmessage_t client_req;       /* The client's request message */
 } tpcmaster_t;
 
 int tpcmaster_init(tpcmaster_t *master, unsigned int slave_capacity,
