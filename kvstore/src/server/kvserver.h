@@ -53,6 +53,8 @@ typedef struct kvserver {
   int sockfd;               /* The socket fd this server is currently listening on (if any). */
   int port;                 /* The port this server should listen on. */
   char *hostname;           /* The host this server should listen on. */
+  // OUR CODE HERE
+  kvmessage_t *msg;         /* The message that I received during phase 1 as a slave. */
 } kvserver_t;
 
 int kvserver_init(kvserver_t *, char *dirname, unsigned int num_sets,

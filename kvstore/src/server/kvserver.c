@@ -10,6 +10,9 @@
 #include "tpclog.h"
 #include "socket_server.h"
 
+// OUR CODE HERE
+#define PORT_NUM_LENGTH 16
+
 /* Initializes a kvserver. Will return 0 if successful, or a negative error
  * code if not. DIRNAME is the directory which should be used to store entries
  * for this server.  The server's cache will have NUM_SETS cache sets, each
@@ -36,6 +39,8 @@ int kvserver_init(kvserver_t *server, char *dirname, unsigned int num_sets,
   server->use_tpc = use_tpc;
   server->max_threads = max_threads;
   server->handle = kvserver_handle;
+  // OUR CODE HERE
+  server->msg = NULL;
   return 0;
 }
 
@@ -45,7 +50,31 @@ int kvserver_init(kvserver_t *server, char *dirname, unsigned int num_sets,
  *
  * Checkpoint 2 only. */
 int kvserver_register_master(kvserver_t *server, int sockfd) {
+  // OUR CODE HERE
+  kvmessage_t *reqmsg = (kvmessage_t *) malloc(sizeof(kvmessage_t));
+  if (reqmsg == NULL) {
+    goto errored;
+  }
+  reqmsg->type = REGISTER;
+  reqmsg->key = (char *) malloc((strlen(server->hostname) + 1) * sizeof(char));
+  if (reqmsg->key == NULL) {
+    goto free_reqmsg;
+  }
+  strcpy(reqmsg->key, server->hostname);
+  reqmsg->value = (char *) malloc(sizeof(char) * PORT_NUM_LENGTH); // max number is 2^16 - 1
+  if (reqmsg->value == NULL) {
+    goto free_key;
+  }
+  sprintf(reqmsg->value, "%d", server->port);
+  kvmessage_send(reqmsg, sockfd);
   return 0;
+
+  free_key:
+    free(reqmsg->key);
+  free_reqmsg:
+    free(reqmsg);
+  errored:
+    return -1;
 }
 
 /* Attempts to get KEY from SERVER. Returns 0 if successful, else a negative
@@ -120,8 +149,57 @@ char *kvserver_get_info_message(kvserver_t *server) {
  *
  * Checkpoint 2 only. */
 void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *respmsg) {
-  respmsg->type = RESP;
-  respmsg->message = ERRMSG_NOT_IMPLEMENTED;
+  if (reqmsg == NULL || respmsg == NULL)
+    return;
+
+  switch (reqmsg->type) {
+    case GETREQ:
+      int error;
+      if ((error = kvserver_get(server, reqmsg->key, &reqmsg->value)) == 0) {
+        respmsg->type = GETRESP;
+        respmsg->key = reqmsg->key;
+        respmsg->value = reqmsg->value;
+      } else {
+        respmsg->type = RESP;
+        respmsg->message = GETMSG(error);
+      }
+      break;
+
+    case PUTREQ:
+      tpclog_log(&server->log, PUTREQ, reqmsg->key, reqmsg->value);
+      if (kvserver_put_check(server, reqmsg->key, reqmsg->value) == 0) {
+        server->msg = reqmsg;
+        respmsg->type = VOTE_COMMIT;
+      } else {
+        respmsg->type = VOTE_ABORT;
+      }
+      break;
+
+    case DELREQ:
+      tpclog_log(&server->log, DELREQ, reqmsg->key, reqmsg->value);
+      if (kvserver_del_check(server, reqmsg->key) == 0) {
+        server->msg = reqmsg;
+        respmsg->type = VOTE_COMMIT;
+      } else {
+        respmsg->type = VOTE_ABORT;
+      }
+      break;
+
+    case COMMIT:
+      tpclog_log(&server->log, COMMIT, reqmsg->key, reqmsg->value);
+      respmsg->type = ACK;
+      if (server->msg->type == PUTREQ) {
+        kvserver_put(server, server->msg->key, server->msg->value);
+      } else {
+        kvserver_del(server, server->msg->key);
+      }
+      break;
+
+    case ABORT: {
+      tpclog_log(&server->log, ABORT, reqmsg->key, reqmsg->value);
+      respmsg->type = ACK;
+    }
+  }
 }
 
 /* Handles an incoming kvmessage REQMSG, and populates the appropriate fields
@@ -137,40 +215,31 @@ void kvserver_handle_no_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t
   switch (reqmsg->type) {
 
     case GETREQ:
-      error = kvserver_get(server, reqmsg->key, &reqmsg->value);
-      if (error == 0) {
+      if ((error = kvserver_get(server, reqmsg->key, &reqmsg->value)) == 0) {
         respmsg->type = GETRESP;
         respmsg->key = reqmsg->key;
         respmsg->value = reqmsg->value;
-        break;
       } else {
         goto unsuccessful_request;
       }
+      break;
 
-    case PUTREQ: 
-      error = kvserver_put_check(server, reqmsg->key, reqmsg->value);
-      if (error == 0) {
-        error = kvserver_put(server, reqmsg->key, reqmsg->value);
-        if (error == 0) {
-          respmsg->type = RESP;
-          respmsg->message = MSG_SUCCESS;
-        }
-      }
-      if (error < 0)
+    case PUTREQ:
+      if ((error = kvserver_put(server, reqmsg->key, reqmsg->value)) == 0) {
+        respmsg->type = RESP;
+        respmsg->message = MSG_SUCCESS;
+      } else {
         goto unsuccessful_request;
+      }
       break;
 
     case DELREQ:
-      error = kvserver_del_check(server, reqmsg->key);
-      if (error == 0) {
-        error = kvserver_del(server, reqmsg->key);
-        if (error == 0) {
-          respmsg->type = RESP;
-          respmsg->message = MSG_SUCCESS;
-        }
-      }
-      if (error < 0)
+      if ((error = kvserver_del(server, reqmsg->key)) == 0) {
+        respmsg->type = RESP;
+        respmsg->message = MSG_SUCCESS;
+      } else {
         goto unsuccessful_request;
+      }
       break;
 
     case INFO:
@@ -183,12 +252,12 @@ void kvserver_handle_no_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t
       break;
   }
 
-return;
+  return;
 
 /* All unsuccessful requests will be handled in the same manner. */
-unsuccessful_request:
-  respmsg->type = RESP;
-  respmsg->message = GETMSG(error); 
+  unsuccessful_request:
+    respmsg->type = RESP;
+    respmsg->message = GETMSG(error); 
 }
 /* Generic entrypoint for this SERVER. Takes in a socket on SOCKFD, which
  * should already be connected to an incoming request. Processes the request
@@ -209,12 +278,13 @@ void kvserver_handle(kvserver_t *server, int sockfd, void *extra) {
     server_handler(server, reqmsg, respmsg);
   }
   kvmessage_send(respmsg, sockfd);
-  if (reqmsg != NULL)
-    kvmessage_free(reqmsg);
+  /* The tpcmaster needs to keep this kvmessage -- freeing is on him now. */
+  // if (reqmsg != NULL)
+  //   kvmessage_free(reqmsg);
 }
 
 /* Restore SERVER back to the state it should be in, according to the
- * associated LOG.  Must be called on an initialized SERVER. Only restores the
+ * associated LOG. Must be called on an initialized SERVER. Only restores the
  * state of the most recent TPC transaction, assuming that all previous actions
  * have been written to persistent storage. Should restore SERVER to its exact
  * state; e.g. if SERVER had written into its log that it received a PUTREQ but
