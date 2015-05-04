@@ -153,40 +153,31 @@ void kvserver_handle_no_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t
   switch (reqmsg->type) {
 
     case GETREQ:
-      error = kvserver_get(server, reqmsg->key, &reqmsg->value);
-      if (error == 0) {
+      if ((error = kvserver_get(server, reqmsg->key, &reqmsg->value)) == 0) {
         respmsg->type = GETRESP;
         respmsg->key = reqmsg->key;
         respmsg->value = reqmsg->value;
-        break;
       } else {
         goto unsuccessful_request;
       }
+      break;
 
-    case PUTREQ: 
-      error = kvserver_put_check(server, reqmsg->key, reqmsg->value);
-      if (error == 0) {
-        error = kvserver_put(server, reqmsg->key, reqmsg->value);
-        if (error == 0) {
-          respmsg->type = RESP;
-          respmsg->message = MSG_SUCCESS;
-        }
-      }
-      if (error < 0)
+    case PUTREQ:
+      if ((error = kvserver_put(server, reqmsg->key, reqmsg->value)) == 0) {
+        respmsg->type = RESP;
+        respmsg->message = MSG_SUCCESS;
+      } else {
         goto unsuccessful_request;
+      }
       break;
 
     case DELREQ:
-      error = kvserver_del_check(server, reqmsg->key);
-      if (error == 0) {
-        error = kvserver_del(server, reqmsg->key);
-        if (error == 0) {
-          respmsg->type = RESP;
-          respmsg->message = MSG_SUCCESS;
-        }
-      }
-      if (error < 0)
+      if ((error = kvserver_del(server, reqmsg->key)) == 0) {
+        respmsg->type = RESP;
+        respmsg->message = MSG_SUCCESS;
+      } else {
         goto unsuccessful_request;
+      }
       break;
 
     case INFO:
@@ -199,12 +190,12 @@ void kvserver_handle_no_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t
       break;
   }
 
-return;
+  return;
 
 /* All unsuccessful requests will be handled in the same manner. */
-unsuccessful_request:
-  respmsg->type = RESP;
-  respmsg->message = GETMSG(error); 
+  unsuccessful_request:
+    respmsg->type = RESP;
+    respmsg->message = GETMSG(error);   
 }
 /* Generic entrypoint for this SERVER. Takes in a socket on SOCKFD, which
  * should already be connected to an incoming request. Processes the request

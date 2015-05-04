@@ -85,7 +85,7 @@ void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg, kvmessage_t *r
   free(format_string);
   /* Check to see if slave is still in the list. */
   tpcslave_t *elt;
-  DL_FOREACH(master->slaves_head, elt) {
+  CDL_FOREACH(master->slaves_head, elt) {
     if (elt->id > hash_val) {
       break;
     }
@@ -118,8 +118,8 @@ void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg, kvmessage_t *r
   strcpy(slave->host, hostname);
   char *ptr;
   slave->port = strtol(port, &ptr, 10);
-  DL_APPEND(master->slaves_head, slave);
-  DL_SORT(master->slaves_head, port_cmp);
+  CDL_PREPEND(master->slaves_head, slave);
+  CDL_SORT(master->slaves_head, port_cmp);
   respmsg->message = MSG_SUCCESS;
   //FIXME: where do i set the kvserver_t struct to stuff into the slave?
   // DL_SORT(master->slaves_head, port_cmp);
@@ -138,9 +138,22 @@ static int port_cmp(tpcslave_t *a, tpcslave_t *b) {
  * Checkpoint 2 only. */
 tpcslave_t *tpcmaster_get_primary(tpcmaster_t *master, char *key) {
   // OUR CODE HERE: if the list of slaves are sorted by id
+  CDL_SORT(master->slaves_head, port_cmp);
+  printf("\n\nTesting here!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+  if (master->slaves_head) {
+    printf("slaves head: id is %lld, host name is %s\n", master->slaves_head->id, master->slaves_head->host);
+  } else {
+    printf("slaves head is empty. :(\n");
+  }
+  if (master->slaves_head->prev) {
+    printf("AHAHAHAHAHAHA WHAT NOW YO\n");
+    printf("this id is: %d", master->slaves_head->prev->id);
+  } else {
+    printf("boo.\n");
+  }
   int64_t hash_val = hash_64_bit(key);
   tpcslave_t *elt;
-  DL_FOREACH(master->slaves_head, elt)
+  CDL_FOREACH(master->slaves_head, elt)
     {
       //printf("slave's id port num is: %d\n", elt->id);
       if (elt->id > hash_val) {
@@ -158,7 +171,7 @@ tpcslave_t *tpcmaster_get_successor(tpcmaster_t *master, tpcslave_t *predecessor
   // OUR CODE HERE: if the list of slaves are sorted by id
   tpcslave_t *elt;
   bool saw_successor = false;
-  DL_FOREACH(master->slaves_head, elt)
+  CDL_FOREACH(master->slaves_head, elt)
     {
       //printf("slave's id port num is: %d\n", elt->id);
       if (saw_successor)
@@ -259,7 +272,7 @@ void tpcmaster_info(tpcmaster_t *master, kvmessage_t *reqmsg,
   strcpy(info, asctime(localtime(&ltime)));
   strcpy(info, "Slaves:\n");
   tpcslave_t *elt;
-  DL_FOREACH(master->slaves_head, elt) {
+  CDL_FOREACH(master->slaves_head, elt) {
     sprintf(buf, "{%s, %d}\n", elt->host, elt->port);
     strcat(info, buf);
   }
