@@ -58,7 +58,9 @@ typedef struct tpcmaster {
   tpchandle_t handle;           /* The function this master will use to handle requests. */
 
   // OUR CODE HERE
-  bool commit;                  /* True if all slaves commit, false if one slave aborts. */
+  tpc_state_t state;            /* The current state this master is in. */
+  bool sorted;                  /* True if the slaves_head list is sorted. */
+  // bool commit;                  /* True if all slaves commit, false if one slave aborts. */
   kvmessage_t *client_req;       /* The client's request message. */
 } tpcmaster_t;
 

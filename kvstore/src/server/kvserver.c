@@ -72,7 +72,14 @@ int kvserver_register_master(kvserver_t *server, int sockfd) {
   }
   sprintf(reqmsg->value, "%d", server->port);
   kvmessage_send(reqmsg, sockfd);
-  return 0;
+  kvmessage_t *response;
+  if ((response = kvmessage_parse(sockfd)) == NULL) {
+    return -1;
+  } else if (strcmp(MSG_SUCCESS, response->message) != 0) {
+    return -1; // might change later to return specific error but how to get it.
+  } else {
+    return 0;
+  }
 }
 
 /* Attempts to get KEY from SERVER. Returns 0 if successful, else a negative
