@@ -78,10 +78,10 @@ void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg, kvmessage_t *r
   if (respmsg == NULL || reqmsg == NULL)
     return;
 
-  char *port = reqmsg->key;
-  char *hostname = reqmsg->value;
-  int port_strlen = strlen(reqmsg->key);
-  int hostname_strlen = strlen(reqmsg->value);
+  char *port = reqmsg->value;
+  char *hostname = reqmsg->key;
+  int port_strlen = strlen(reqmsg->value);
+  int hostname_strlen = strlen(reqmsg->key);
 
   /* Need to add 2, one for null terminator and one for the ":". */
   char *format_string = (char *) malloc((port_strlen + hostname_strlen + 2) * sizeof(char));
@@ -143,7 +143,6 @@ void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg, kvmessage_t *r
   CDL_SORT(master->slaves_head, port_cmp);
   master->sorted = true;
   respmsg->message = MSG_SUCCESS;
-
   return;
 
   free_slave_host:
@@ -156,7 +155,7 @@ void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg, kvmessage_t *r
 
 /* Comparator function to be used to sort our DL list of tpcslave_t slaves. */
 static int port_cmp(tpcslave_t *a, tpcslave_t *b) {
-  return a->id < b->id;
+  return a->id > b->id;
 }
 
 /* Hashes KEY and finds the first slave that should contain it.
@@ -197,11 +196,10 @@ tpcslave_t *tpcmaster_get_primary(tpcmaster_t *master, char *key) {
         break;
       }
     }
-    printf("\n\n\n\n\nWHOAAAAAAAAAAAAAAAAAA HOLD UP NOW. THIS SHOULD NEVER HIT. HALP. I'M IN TPCMASTER_GET_PRIMARY\n");
+    // printf("\n\n\n\n\nWHOAAAAAAAAAAAAAAAAAA HOLD UP NOW. THIS SHOULD NEVER HIT. HALP. I'M IN TPCMASTER_GET_PRIMARY\n");
   }
 
   pthread_rwlock_unlock(&master->slave_lock);
-
   return elt;
 }
 
