@@ -16,8 +16,10 @@
 
 static int port_cmp(tpcslave_t *a, tpcslave_t *b);
 
-static void phase1(tpcmaster_t *master, tpcslave_t *slave, kvmessage_t *reqmsg, callback_t callback);
-static void phase2(tpcmaster_t *master, tpcslave_t *slave, kvmessage_t *reqmsg, callback_t callback);
+static void phase1(tpcmaster_t *master, tpcslave_t *slave,
+                   kvmessage_t *reqmsg, callback_t callback);
+static void phase2(tpcmaster_t *master, tpcslave_t *slave,
+                   kvmessage_t *reqmsg, callback_t callback);
 
 /* Initializes a tpcmaster. Will return 0 if successful, or a negative error
  * code if not. SLAVE_CAPACITY indicates the maximum number of slaves that
@@ -86,6 +88,8 @@ void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg, kvmessage_t *r
   int64_t hash_val = hash_64_bit(format_string);
   free(format_string);
 
+  pthread_rwlock_wrlock(&master->slave_lock);
+
   /* Check to see if slave is still in the list. */
   tpcslave_t *elt;
   CDL_FOREACH(master->slaves_head, elt) {
@@ -94,13 +98,13 @@ void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg, kvmessage_t *r
     }
     if (elt->id == hash_val) { // slave already in list
       respmsg->message = MSG_SUCCESS;
-      return;
+      goto unlock;
     }
   }
 
   if (master->slave_count == master->slave_capacity) { // is this an error? Probably huh.
     respmsg->message = ERRMSG_GENERIC_ERROR;
-    return;
+    goto unlock;
   } else {
     master->slave_count++;
   }
@@ -108,34 +112,38 @@ void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg, kvmessage_t *r
   tpcslave_t *slave = (tpcslave_t *) malloc(sizeof(tpcslave_t));
   if (slave == NULL) {
     respmsg->message = ERRMSG_GENERIC_ERROR;
-    return;
+    goto unlock;
   }
 
   /* Filling in appropriate fields of tpcslave_t */
   slave->id = hash_val;
   slave->host = (char *) malloc((hostname_strlen + 1) * sizeof(char));
   if (slave->host == NULL) {
-    free(slave);
     respmsg->message = ERRMSG_GENERIC_ERROR;
-    return;
+    goto free_slave;
   }
   strcpy(slave->host, hostname);
   char *ptr;
   int num = strtol(port, &ptr, 10);
-  if (num == 0) { // unsuccessful conversion
-    free(slave);
-    free(slave->host);
+  if (*ptr != NULL) { // unsuccessful conversion
     respmsg->message = ERRMSG_GENERIC_ERROR;
-    return;
+    goto free_slave_host;
   }
   slave->port = num;
   CDL_PREPEND(master->slaves_head, slave);
   CDL_SORT(master->slaves_head, port_cmp);
-  // DL_APPEND(master->slaves_head, slave);
-  // DL_SORT(master->slaves_head, port_cmp);
   respmsg->message = MSG_SUCCESS;
   //FIXME: where do i set the kvserver_t struct to stuff into the slave?
   // this isn't called in some tests.. not guarnateed to be sorted?
+
+  return;
+
+  free_slave_host:
+    free(slave->host);
+  free_slave:
+    free(slave);
+  unlock:
+    pthread_rwlock_unlock(&master->slave_lock);
 }
 
 /* Comparator function to be used to sort our DL list of tpcslave_t slaves. */
@@ -151,7 +159,10 @@ static int port_cmp(tpcslave_t *a, tpcslave_t *b) {
  * Checkpoint 2 only. */
 tpcslave_t *tpcmaster_get_primary(tpcmaster_t *master, char *key) {
   // OUR CODE HERE: if the list of slaves are sorted by id
+  pthread_rwlock_wrlock(&master->slave_lock);
+
   CDL_SORT(master->slaves_head, port_cmp);
+
   printf("\n\nTesting here!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
   if (master->slaves_head) {
     printf("slaves head: id is %lld, host name is %s\n", master->slaves_head->id, master->slaves_head->host);
@@ -164,16 +175,21 @@ tpcslave_t *tpcmaster_get_primary(tpcmaster_t *master, char *key) {
   } else {
     printf("boo.\n");
   }
+
   int64_t hash_val = hash_64_bit(key);
-  tpcslave_t *elt;
-  CDL_FOREACH(master->slaves_head, elt)
-    {
-      //printf("slave's id port num is: %d\n", elt->id);
+  if (master->slaves_head->prev->id < hash_val) { // highest slave ID < hash_val
+    pthread_rwlock_unlock(&master->slave_lock);
+    return master->slaves_head;
+  } else {
+    tpcslave_t *elt;
+    CDL_FOREACH(master->slaves_head, elt) {
       if (elt->id > hash_val) {
+        pthread_rwlock_unlock(&master->slave_lock);
         return elt;
       }
     }
-  return master->slaves_head;
+    printf("\n\n\n\n\nWHOAAAAAAAAAAAAAAAAAA HOLD UP NOW. THIS SHOULD NEVER HIT. HALP. I'M IN TPCMASTER_GET_PRIMARY\n");
+  }
 }
 
 /* Returns the slave whose ID comes after PREDECESSOR's, sorted
@@ -181,20 +197,44 @@ tpcslave_t *tpcmaster_get_primary(tpcmaster_t *master, char *key) {
  *
  * Checkpoint 2 only. */
 tpcslave_t *tpcmaster_get_successor(tpcmaster_t *master, tpcslave_t *predecessor) {
-  // OUR CODE HERE: if the list of slaves are sorted by id
+  // OUR CODE HERE: if the list of slaves are sorted by id: i'm assuming we're guaranteed that predecessor is always in our list...
+  
+  pthread_rwlock_wrlock(&master->slave_lock);
+
+  CDL_SORT(master->slaves_head, port_cmp);
+  tpcslave_t *elt;
+  bool saw_successor = false;
+  CDL_SEARCH(master->slaves_head, elt, id, predecessor->id);
+  if (elt) {
+    pthread_rwlock_unlock(&master->slave_lock);
+    return elt->next;
+  } else {
+    printf("\n\n\n\n\n\n\n");
+    printf("WHOA WHOA WHOA HWOA HOLD UP NOW. WHY. HALP. PREDECESSOR ISN'T IN LIST\n");
+    printf("\n");
+    pthread_rwlock_unlock(&master->slave_lock);
+    return NULL;
+  }
+  
+  /*
+  pthread_rwlock_wrlock(&master->slave_lock);
+
   CDL_SORT(master->slaves_head, port_cmp);
   tpcslave_t *elt;
   bool saw_successor = false;
   CDL_FOREACH(master->slaves_head, elt)
     {
       //printf("slave's id port num is: %d\n", elt->id);
-      if (saw_successor)
+      if (saw_successor) {
+        pthread_rwlock_unlock(&master->slave_lock);
         return elt;
-      if (elt == predecessor)
+      }
+      if (elt == predecessor) {
         saw_successor = true;
+      }
     }
-  return master->slaves_head;
-  // i'm assuming we're guaranteed that predecessor is always in our list...
+  pthread_rwlock_unlock(&master->slave_lock);
+  return master->slaves_head; */
 }
 
 /* Handles an incoming GET request REQMSG, and populates the appropriate fields
@@ -264,9 +304,9 @@ void tpcmaster_handle_tpc(tpcmaster_t *master, kvmessage_t *reqmsg,
     return; 
 
   char *value;
-  if (kvcache_get(&master->cache, reqmsg->key, &value) == 0) {
+  // if (kvcache_get(&master->cache, reqmsg->key, &value) == 0) {
 
-  } else {
+  // } else {
     tpcslave_t *primary = tpcmaster_get_primary(master, respmsg->key);
     tpcslave_t *iter = primary;
     int i;
@@ -327,15 +367,15 @@ void tpcmaster_info(tpcmaster_t *master, kvmessage_t *reqmsg,
   strcpy(info, asctime(localtime(&ltime)));
   strcpy(info, "Slaves:\n");
   tpcslave_t *elt;
+  pthread_rwlock_rdlock(&master->slave_lock);
   CDL_FOREACH(master->slaves_head, elt) {
-    // see if it's okay to use buf like this
+    // README: karen: looked it up, it's okay to use buf like this
     sprintf(buf, "{%s, %d}\n", elt->host, elt->port);
     strcat(info, buf);
   }
-  char *msg = malloc(strlen(info) * sizeof(char));
-  strcpy(msg, info);
+  pthread_rwlock_unlock(&master->slave_lock);
   //return msg;
-  respmsg->message = msg;
+  respmsg->message = info;
 }
 
 /* Generic entrypoint for this MASTER. Takes in a socket on SOCKFD, which
