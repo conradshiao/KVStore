@@ -211,7 +211,7 @@ tpcslave_t *tpcmaster_get_successor(tpcmaster_t *master, tpcslave_t *predecessor
   } else {
     printf("\n\n\n\n\n\n\n");
     printf("WHOA WHOA WHOA HWOA HOLD UP NOW. WHY. HALP. PREDECESSOR ISN'T IN LIST\n");
-    printf("\n");
+    printf("\n\n\n\n\n\n\n");
     pthread_rwlock_unlock(&master->slave_lock);
     return NULL;
   }
@@ -257,7 +257,7 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
   } else {
     tpcslave_t *slave = tpcmaster_get_primary(master, reqmsg->key);
     // also... is documentation from staff wrong where they say fd is a CLOSED socket. i think they mean open... right?
-    int fd = connect_to(slave->host, slave->port, 2); // how many seconds? i think 2 but i don't see in specs...
+    int fd = connect_to(slave->host, slave->port, 2);
     if (fd == -1) { //FIXME: README: or do we wanna try to connect again????
       respmsg->message = ERRMSG_GENERIC_ERROR;
       return;
@@ -274,8 +274,6 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
     }
     if (strcmp(respmsg->message, MSG_SUCCESS) == 0) {
       kvcache_put(&master->cache, respmsg->key, respmsg->value);
-    } else {
-      // errored. do we just... leave respmsg as be then? I think we do.
     }
   }
 }
@@ -307,19 +305,19 @@ void tpcmaster_handle_tpc(tpcmaster_t *master, kvmessage_t *reqmsg,
   // if (kvcache_get(&master->cache, reqmsg->key, &value) == 0) {
 
   // } else {
-    tpcslave_t *primary = tpcmaster_get_primary(master, respmsg->key);
-    tpcslave_t *iter = primary;
-    int i;
-    for (i = 0; i < master->redundancy; i++) {
-      phase1(master, iter, reqmsg, callback);
-      if ((iter = iter->next) == NULL) {
-        iter = master->slaves_head;
-      }
+  tpcslave_t *primary = tpcmaster_get_primary(master, respmsg->key);
+  tpcslave_t *iter = primary;
+  int i;
+  for (i = 0; i < master->redundancy; i++) {
+    phase1(master, iter, reqmsg, callback);
+    if ((iter = iter->next) == NULL) {
+      iter = master->slaves_head;
+    }
       // iter = iter->next;
       // if (iter == NULL) {
       //   iter = master->slaves_head;
       // }
-    }
+  }
 
     // tpcslave_t *slave1 = tpcmaster_get_primary(master, respmsg->key);
     // phase1(master, slave1, reqmsg, callback);
@@ -361,6 +359,7 @@ void tpcmaster_handle_tpc(tpcmaster_t *master, kvmessage_t *reqmsg,
  * Checkpoint 2 only. */
 void tpcmaster_info(tpcmaster_t *master, kvmessage_t *reqmsg,
     kvmessage_t *respmsg) {
+  // OUR CODE HERE
   char buf[256];
   char *info = (char *) malloc((master->slave_count * MAX_INFOLINE_LENGTH + 256) * sizeof(char));
   time_t ltime = time(NULL);
@@ -427,13 +426,14 @@ void tpcmaster_clear_cache(tpcmaster_t *tpcmaster) {
 static void phase1(tpcmaster_t *tpcmaster, tpcslave_t *slave, kvmessage_t *reqmsg, callback_t callback) {
   int fd = connect_to(slave->host, slave->port, 2);
   if (fd == -1 && callback != NULL) {
-    callback(NULL);
+    callback(slave);
   }
   kvmessage_send(reqmsg, fd);
   kvmessage_t *temp = kvmessage_parse(fd);
-  if (temp->type == VOTE_COMMIT) {
+  // if (temp->type == VOTE_COMMIT) {
 
-  } else if (temp->type == VOTE_ABORT) {
+  // } else 
+  if (temp->type == VOTE_ABORT) {
     tpcmaster->commit = false;    
   }
 }
@@ -444,11 +444,11 @@ static void phase2(tpcmaster_t *tpcmaster, tpcslave_t *slave, kvmessage_t *reqms
   int fd = connect_to(slave->host, slave->port, 2);
   if (fd == -1) {
     if (callback != NULL) {
-      callback(NULL);
+      callback(slave);
     }
     return;
   }
-  while (true) {
+  while (true) {                // need to send to all slaves? threads?
     kvmessage_send(reqmsg, fd);
     kvmessage_t *response = kvmessage_parse(fd);
     if (response->type == ACK)
@@ -457,5 +457,5 @@ static void phase2(tpcmaster_t *tpcmaster, tpcslave_t *slave, kvmessage_t *reqms
   //FIXME: README: something's wrong here i think. we're just sending it one at a time. we need to
   //send it all at once and then 
   // CONRAD'S CODE HERE
-  kvmessage_free(tpcmaster->client_req);
+  // kvmessage_free(tpcmaster->client_req);
 }
