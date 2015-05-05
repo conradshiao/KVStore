@@ -9,6 +9,8 @@
 #include "tpcmaster.h"
 // OUR CODE HERE
 #include <stdbool.h>
+#include <stdlib.h>
+#include <string.h>
 
 #define MAX_INFOLINE_LENGTH 256
 
@@ -83,9 +85,10 @@ void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg, kvmessage_t *r
   strcat(format_string, hostname);
   int64_t hash_val = hash_64_bit(format_string);
   free(format_string);
-  /* Check to see if slave is already in the list. */
+
+  /* Check to see if slave is still in the list. */
   tpcslave_t *elt;
-  DL_FOREACH(master->slaves_head, elt) {
+  CDL_FOREACH(master->slaves_head, elt) {
     if (elt->id > hash_val) {
       break;
     }
@@ -130,16 +133,14 @@ void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg, kvmessage_t *r
   CDL_SORT(master->slaves_head, port_cmp);
   // DL_APPEND(master->slaves_head, slave);
   // DL_SORT(master->slaves_head, port_cmp);
-  resp->message = MSG_SUCCESS;
+  respmsg->message = MSG_SUCCESS;
   //FIXME: where do i set the kvserver_t struct to stuff into the slave?
   // this isn't called in some tests.. not guarnateed to be sorted?
-  // DL_SORT(master->slaves_head, port_cmp);
 }
 
 /* Comparator function to be used to sort our DL list of tpcslave_t slaves. */
 static int port_cmp(tpcslave_t *a, tpcslave_t *b) {
-  return a->id < b->id; // FIXME not working as expected atm. I think it's cuz tpc_register is
-  // not beign called all the time during the tests...
+  return a->id < b->id;
 }
 
 /* Hashes KEY and finds the first slave that should contain it.
@@ -151,6 +152,18 @@ static int port_cmp(tpcslave_t *a, tpcslave_t *b) {
 tpcslave_t *tpcmaster_get_primary(tpcmaster_t *master, char *key) {
   // OUR CODE HERE: if the list of slaves are sorted by id
   CDL_SORT(master->slaves_head, port_cmp);
+  printf("\n\nTesting here!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+  if (master->slaves_head) {
+    printf("slaves head: id is %lld, host name is %s\n", master->slaves_head->id, master->slaves_head->host);
+  } else {
+    printf("slaves head is empty. :(\n");
+  }
+  if (master->slaves_head->prev) {
+    printf("AHAHAHAHAHAHA WHAT NOW YO\n");
+    printf("this id is: %d", master->slaves_head->prev->id);
+  } else {
+    printf("boo.\n");
+  }
   int64_t hash_val = hash_64_bit(key);
   tpcslave_t *elt;
   CDL_FOREACH(master->slaves_head, elt)
@@ -169,10 +182,10 @@ tpcslave_t *tpcmaster_get_primary(tpcmaster_t *master, char *key) {
  * Checkpoint 2 only. */
 tpcslave_t *tpcmaster_get_successor(tpcmaster_t *master, tpcslave_t *predecessor) {
   // OUR CODE HERE: if the list of slaves are sorted by id
-  DL_SORT(master->slaves_head, port_cmp);
+  CDL_SORT(master->slaves_head, port_cmp);
   tpcslave_t *elt;
   bool saw_successor = false;
-  DL_FOREACH(master->slaves_head, elt)
+  CDL_FOREACH(master->slaves_head, elt)
     {
       //printf("slave's id port num is: %d\n", elt->id);
       if (saw_successor)
@@ -192,7 +205,7 @@ tpcslave_t *tpcmaster_get_successor(tpcmaster_t *master, tpcslave_t *predecessor
 void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
                           kvmessage_t *respmsg) {
   // respmsg->message = ERRMSG_NOT_IMPLEMENTED;
-  if (reqmsg == NULL || respmsg == NULL) {
+  if (reqmsg == NULL || respmsg == NULL)
     return;
 
   char *value;
@@ -314,12 +327,12 @@ void tpcmaster_info(tpcmaster_t *master, kvmessage_t *reqmsg,
   strcpy(info, asctime(localtime(&ltime)));
   strcpy(info, "Slaves:\n");
   tpcslave_t *elt;
-  DL_FOREACH(master->slaves_head, elt) {
-    kvserver_t *server = &elt->server;
-    sprintf(buf, "{%s, %d}\n", server->hostname, server->port);
+  CDL_FOREACH(master->slaves_head, elt) {
+    // see if it's okay to use buf like this
+    sprintf(buf, "{%s, %d}\n", elt->host, elt->port);
     strcat(info, buf);
   }
-  char *msg = malloc(strlen(info));
+  char *msg = malloc(strlen(info) * sizeof(char));
   strcpy(msg, info);
   //return msg;
   respmsg->message = msg;
@@ -372,7 +385,7 @@ void tpcmaster_clear_cache(tpcmaster_t *tpcmaster) {
 
 /* Send and receive message to and from slave in phase 1 of TPC */
 static void phase1(tpcmaster_t *tpcmaster, tpcslave_t *slave, kvmessage_t *reqmsg, callback_t callback) {
-  int fd = connect_to(slave->host, slave->port);
+  int fd = connect_to(slave->host, slave->port, 2);
   if (fd == -1 && callback != NULL) {
     callback(NULL);
   }
@@ -381,24 +394,26 @@ static void phase1(tpcmaster_t *tpcmaster, tpcslave_t *slave, kvmessage_t *reqms
   if (temp->type == VOTE_COMMIT) {
 
   } else if (temp->type == VOTE_ABORT) {
-    master->commit = false;
+    tpcmaster->commit = false;    
   }
 }
 
 /* Send and receive message to and from slave in phase 2 of TPC */
 static void phase2(tpcmaster_t *tpcmaster, tpcslave_t *slave, kvmessage_t *reqmsg, callback_t callback) {
   // OUR CODE HERE
-  int fd = connect_to(slave->host, slave->port);
+  int fd = connect_to(slave->host, slave->port, 2);
   if (fd == -1) {
     if (callback != NULL) {
       callback(NULL);
     }
     return;
   }
-  do {
+  while (true) {
     kvmessage_send(reqmsg, fd);
     kvmessage_t *response = kvmessage_parse(fd);
-  } while (response->type != ACK);
+    if (response->type == ACK)
+      break;
+  }
   //FIXME: README: something's wrong here i think. we're just sending it one at a time. we need to
   //send it all at once and then 
   // CONRAD'S CODE HERE

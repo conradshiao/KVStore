@@ -11,6 +11,8 @@
 #include "socket_server.h"
 
 // OUR CODE HERE
+#include <string.h>
+#include <stdlib.h>
 #define PORT_NUM_LENGTH 16
 
 /* Initializes a kvserver. Will return 0 if successful, or a negative error
@@ -53,28 +55,24 @@ int kvserver_register_master(kvserver_t *server, int sockfd) {
   // OUR CODE HERE
   kvmessage_t *reqmsg = (kvmessage_t *) malloc(sizeof(kvmessage_t));
   if (reqmsg == NULL) {
-    goto errored;
+    return -1;
   }
   reqmsg->type = REGISTER;
   reqmsg->key = (char *) malloc((strlen(server->hostname) + 1) * sizeof(char));
   if (reqmsg->key == NULL) {
-    goto free_reqmsg;
+    free(reqmsg);
+    return -1;
   }
   strcpy(reqmsg->key, server->hostname);
   reqmsg->value = (char *) malloc(sizeof(char) * PORT_NUM_LENGTH); // max number is 2^16 - 1
   if (reqmsg->value == NULL) {
-    goto free_key;
+    free(reqmsg->key);
+    free(reqmsg);
+    return -1;
   }
   sprintf(reqmsg->value, "%d", server->port);
   kvmessage_send(reqmsg, sockfd);
   return 0;
-
-  free_key:
-    free(reqmsg->key);
-  free_reqmsg:
-    free(reqmsg);
-  errored:
-    return -1;
 }
 
 /* Attempts to get KEY from SERVER. Returns 0 if successful, else a negative
@@ -152,9 +150,9 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
   if (reqmsg == NULL || respmsg == NULL)
     return;
 
+  int error;
   switch (reqmsg->type) {
     case GETREQ:
-      int error;
       if ((error = kvserver_get(server, reqmsg->key, &reqmsg->value)) == 0) {
         respmsg->type = GETRESP;
         respmsg->key = reqmsg->key;
@@ -195,10 +193,13 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
       }
       break;
 
-    case ABORT: {
+    case ABORT:
       tpclog_log(&server->log, ABORT, reqmsg->key, reqmsg->value);
       respmsg->type = ACK;
-    }
+
+    default:
+      respmsg->type = RESP;
+      respmsg->message = ERRMSG_INVALID_REQUEST;    
   }
 }
 
@@ -278,6 +279,7 @@ void kvserver_handle(kvserver_t *server, int sockfd, void *extra) {
     server_handler(server, reqmsg, respmsg);
   }
   kvmessage_send(respmsg, sockfd);
+  // OUR CODE HERE
   /* The tpcmaster needs to keep this kvmessage -- freeing is on him now. */
   // if (reqmsg != NULL)
   //   kvmessage_free(reqmsg);
