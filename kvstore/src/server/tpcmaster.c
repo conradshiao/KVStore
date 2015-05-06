@@ -262,14 +262,18 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
                           kvmessage_t *respmsg) {
   // OUR CODE HERE
   // respmsg->message = ERRMSG_NOT_IMPLEMENTED;
-  if (respmsg == NULL || reqmsg == NULL || master->slave_count < master->slave_capacity)
+  // printf("here0\n");
+  if (respmsg == NULL || reqmsg == NULL)
     return;
-
+  // printf("here0\n");
   char *value;
   if (kvcache_get(&master->cache, reqmsg->key, &value) == 0) {
+    // printf("%s\n", value);
     respmsg->type = GETRESP;
     respmsg->key = reqmsg->key;
     respmsg->value = value;
+    respmsg->message = MSG_SUCCESS;
+    // return;
   } else {
     tpcslave_t *slave = tpcmaster_get_primary(master, reqmsg->key);
     int fd;
@@ -292,6 +296,7 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
       // errored. do we just... leave respmsg as be then? I think we do.
     }
   }
+  printf("response: %s\n", respmsg->message);
 }
 
 /* Handles an incoming TPC request REQMSG, and populates the appropriate fields
@@ -372,16 +377,15 @@ void tpcmaster_info(tpcmaster_t *master, kvmessage_t *reqmsg,
   char *info = (char *) malloc((master->slave_count * MAX_INFOLINE_LENGTH + 256) * sizeof(char));
   time_t ltime = time(NULL);
   strcpy(info, asctime(localtime(&ltime)));
-  strcpy(info, "Slaves:\n");
+  strcat(info, "Slaves:");
   tpcslave_t *elt;
   pthread_rwlock_rdlock(&master->slave_lock);
   CDL_FOREACH(master->slaves_head, elt) {
     // README: karen: looked it up, it's okay to use buf like this
-    sprintf(buf, "{%s, %d}\n", elt->host, elt->port);
+    sprintf(buf, "\n{%s, %d}", elt->host, elt->port);
     strcat(info, buf);
   }
   pthread_rwlock_unlock(&master->slave_lock);
-  //return msg;
   respmsg->message = info;
 }
 
