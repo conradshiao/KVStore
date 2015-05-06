@@ -55,6 +55,7 @@ typedef struct kvserver {
   char *hostname;           /* The host this server should listen on. */
   // OUR CODE HERE
   kvmessage_t *msg;         /* The message that I received during phase 1 as a slave. */
+  tpc_state_t state;        /* The current state I am in when under TPC operations. */
 } kvserver_t;
 
 int kvserver_init(kvserver_t *, char *dirname, unsigned int num_sets,
