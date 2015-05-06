@@ -265,13 +265,12 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
                           kvmessage_t *respmsg) {
   // OUR CODE HERE
   // respmsg->message = ERRMSG_NOT_IMPLEMENTED;
-  // printf("here0\n");
   if (respmsg == NULL || reqmsg == NULL)
     return;
-  // printf("here0\n");
+
   char *value;
+  kvmessage_t *received_response;
   if (kvcache_get(&master->cache, reqmsg->key, &value) == 0) {
-    // printf("%s\n", value);
     respmsg->type = GETRESP;
     respmsg->key = reqmsg->key;
     respmsg->value = value;
@@ -280,25 +279,43 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
     tpcslave_t *slave = tpcmaster_get_primary(master, reqmsg->key);
     int fd;
     if ((fd = connect_to(slave->host, slave->port, TIMEOUT_SECONDS)) == -1) {
-      respmsg->message = ERRMSG_GENERIC_ERROR;
-      return;
+      goto generic_error;
     }
     kvmessage_send(reqmsg, fd);
-    respmsg = kvmessage_parse(fd);
-    if (respmsg == NULL) {
-      respmsg->message = ERRMSG_GENERIC_ERROR;
-      return;
-      // there was an error. what do we do? should we leave respmsg as is, give generic error... what?   
+    received_response = kvmessage_parse(fd);
+    if (received_response == NULL) {
+      goto generic_error;
     }
-    if (strcmp(respmsg->message, MSG_SUCCESS) == 0) {
+    if (strcmp(received_response->message, MSG_SUCCESS) == 0) {
+      respmsg->key = (char *) malloc((strlen(received_response->key) + 1) * sizeof(char));
+      respmsg->value = (char *) malloc((strlen(received_response->value) + 1) * sizeof(char));
+      if (respmsg->key == NULL || respmsg->value == NULL) {
+        goto free_fields;
+      }
+      //FIXME: README: So okay. I'm doing this cuz piazza says so. but i think the piazza guy is wrong... lulz
+      /* See if i can modify this later to simply set respmsg equal to received_response... i think i can now. */
+      strcpy(respmsg->key, received_response->key);
+      strcpy(respmsg->value, received_response->value);
+      respmsg->type = GETRESP;
       respmsg->message = MSG_SUCCESS;
       kvcache_put(&master->cache, respmsg->key, respmsg->value);
     } else {
-      printf("\n\nCOCO: uh. what do i do here...\n");
-      // errored. do we just... leave respmsg as be then? I think we do.
+      respmsg->type = RESP;
+      respmsg->message = received_response->message;
     }
+    free(received_response);
   }
   printf("response: %s\n", respmsg->message);
+  //FIXME: README: Do we have to free the kvmessage_parse()??? I think we can here actually...
+  return;
+
+  free_fields:
+    free(received_response); // I think here?
+    free(respmsg->key);
+    free(respmsg->value);
+  generic_error:
+    respmsg->type = RESP;
+    respmsg->message = ERRMSG_GENERIC_ERROR;
 }
 
 /* Handles an incoming TPC request REQMSG, and populates the appropriate fields
