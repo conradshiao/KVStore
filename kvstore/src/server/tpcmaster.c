@@ -115,6 +115,9 @@ void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg, kvmessage_t *r
     goto unlock;
   } else {
     master->slave_count++;
+    if (master->slave_count == master->slave_capacity) {
+      master->state = TPC_READY;
+    }
   }
 
   tpcslave_t *slave = (tpcslave_t *) malloc(sizeof(tpcslave_t));
@@ -273,7 +276,6 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
     respmsg->key = reqmsg->key;
     respmsg->value = value;
     respmsg->message = MSG_SUCCESS;
-    // return;
   } else {
     tpcslave_t *slave = tpcmaster_get_primary(master, reqmsg->key);
     int fd;
@@ -319,7 +321,7 @@ void tpcmaster_handle_tpc(tpcmaster_t *master, kvmessage_t *reqmsg,
                           kvmessage_t *respmsg, callback_t callback) {
 
   assert (reqmsg->type == PUTREQ || reqmsg->type == DELREQ);
-  if (reqmsg == NULL || respmsg == NULL || master->slave_count < master->slave_capacity)
+  if (reqmsg == NULL || respmsg == NULL || master->state == TPC_INIT)
     return; 
 
   tpcslave_t *primary = tpcmaster_get_primary(master, respmsg->key);
