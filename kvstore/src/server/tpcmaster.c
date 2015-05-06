@@ -305,7 +305,7 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
     }
     free(received_response);
   }
-  printf("response: %s\n", respmsg->message);
+  //printf("response: %s\n", respmsg->message);
   //FIXME: README: Do we have to free the kvmessage_parse()??? I think we can here actually...
   return;
 

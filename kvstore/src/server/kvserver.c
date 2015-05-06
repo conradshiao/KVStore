@@ -175,7 +175,7 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
     case PUTREQ:
       tpclog_log(&server->log, PUTREQ, reqmsg->key, reqmsg->value);
       if (kvserver_put_check(server, reqmsg->key, reqmsg->value) == 0) {
-        if ((error = copy_and_store_kvmessage(server, reqmsg)) == -1) {
+        if ((error = copy_and_store_kvmessage(server, reqmsg)) < 0) {
           respmsg->type = RESP;
           respmsg->message = ERRMSG_GENERIC_ERROR;
           return;
@@ -192,7 +192,7 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
     case DELREQ:
       tpclog_log(&server->log, DELREQ, reqmsg->key, reqmsg->value);
       if (kvserver_del_check(server, reqmsg->key) == 0) {
-        if ((error = copy_and_store_kvmessage(server, reqmsg)) == -1) {
+        if ((error = copy_and_store_kvmessage(server, reqmsg)) < 0) {
           respmsg->type = RESP;
           respmsg->message = ERRMSG_GENERIC_ERROR;
           return;
