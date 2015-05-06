@@ -13,6 +13,7 @@
 // OUR CODE HERE
 #include <string.h>
 #include <stdlib.h>
+
 #define PORT_NUM_LENGTH 16
 
 static int copy_and_store_kvmessage(kvserver_t *server, kvmessage_t *msg);
@@ -45,6 +46,7 @@ int kvserver_init(kvserver_t *server, char *dirname, unsigned int num_sets,
   server->handle = kvserver_handle;
   // OUR CODE HERE
   server->msg = NULL;
+  server->state = TPC_INIT;
   return 0;
 }
 
@@ -76,10 +78,15 @@ int kvserver_register_master(kvserver_t *server, int sockfd) {
   kvmessage_send(reqmsg, sockfd);
   kvmessage_t *response;
   if ((response = kvmessage_parse(sockfd)) == NULL) {
+    free(response);
     return -1;
   } else if (strcmp(MSG_SUCCESS, response->message) != 0) {
+    free(response);
     return -1; // might change later to return specific error but how to get it.
   } else {
+    free(response);
+    printf("SHOULD HIT THIS CASE ALMOST ALWAYS.. RIGHT??????????????\n");
+    server->state = TPC_READY;
     return 0;
   }
 }
@@ -156,6 +163,7 @@ char *kvserver_get_info_message(kvserver_t *server) {
  *
  * Checkpoint 2 only. */
 void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *respmsg) {
+  // OUR CODE HERE
   if (reqmsg == NULL || respmsg == NULL || server == NULL)
     return;
 
@@ -174,8 +182,8 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
 
     case PUTREQ:
       tpclog_log(&server->log, PUTREQ, reqmsg->key, reqmsg->value);
-      if (kvserver_put_check(server, reqmsg->key, reqmsg->value) == 0) {
-        if ((error = copy_and_store_kvmessage(server, reqmsg)) < 0) {
+      if ((error = kvserver_put_check(server, reqmsg->key, reqmsg->value)) == 0) {
+        if ((error = copy_and_store_kvmessage(server, reqmsg)) == -1) {
           respmsg->type = RESP;
           respmsg->message = ERRMSG_GENERIC_ERROR;
           return;
@@ -186,13 +194,14 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
         respmsg->type = VOTE_COMMIT;
       } else {
         respmsg->type = VOTE_ABORT;
+        respmsg->message = GETMSG(error);
       }
       break;
 
     case DELREQ:
       tpclog_log(&server->log, DELREQ, reqmsg->key, reqmsg->value);
-      if (kvserver_del_check(server, reqmsg->key) == 0) {
-        if ((error = copy_and_store_kvmessage(server, reqmsg)) < 0) {
+      if ((error = kvserver_del_check(server, reqmsg->key)) == 0) {
+        if ((error = copy_and_store_kvmessage(server, reqmsg)) == -1) {
           respmsg->type = RESP;
           respmsg->message = ERRMSG_GENERIC_ERROR;
           return;
@@ -201,16 +210,21 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
         respmsg->type = VOTE_COMMIT;
       } else {
         respmsg->type = VOTE_ABORT;
+        respmsg->message = GETMSG(error); // need this field in tests.. specs forgot to say
       }
       break;
 
     case COMMIT:
       tpclog_log(&server->log, COMMIT, reqmsg->key, reqmsg->value);
-      respmsg->type = ACK;
+      // respmsg->type = ACK;
       if (server->msg->type == PUTREQ) {
-        kvserver_put(server, server->msg->key, server->msg->value);
+        if ((error = kvserver_put(server, server->msg->key, server->msg->value)) == 0) {
+          respmsg->type = ACK;
+        } // else it's an error and we don't want to send.. anything?
       } else if (server->msg->type == DELREQ) {
-        kvserver_del(server, server->msg->key);
+        if ((error = kvserver_del(server, server->msg->key)) == 0) {
+          respmsg->type = ACK;
+        } // same as above case...
       } else {
         printf("\nUNEXPECTED ERROR: WHOA WHOA WHO WAHO WHOA SLDKF;ASDFJAL;SFD WHY DOE\n");
       }
