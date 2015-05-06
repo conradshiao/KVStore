@@ -15,6 +15,8 @@
 #include <stdlib.h>
 #define PORT_NUM_LENGTH 16
 
+static int copy_and_store_kvmessage(kvserver_t *server, kvmessage_t *msg);
+
 /* Initializes a kvserver. Will return 0 if successful, or a negative error
  * code if not. DIRNAME is the directory which should be used to store entries
  * for this server.  The server's cache will have NUM_SETS cache sets, each
@@ -72,7 +74,14 @@ int kvserver_register_master(kvserver_t *server, int sockfd) {
   }
   sprintf(reqmsg->value, "%d", server->port);
   kvmessage_send(reqmsg, sockfd);
-  return 0;
+  kvmessage_t *response;
+  if ((response = kvmessage_parse(sockfd)) == NULL) {
+    return -1;
+  } else if (strcmp(MSG_SUCCESS, response->message) != 0) {
+    return -1; // might change later to return specific error but how to get it.
+  } else {
+    return 0;
+  }
 }
 
 /* Attempts to get KEY from SERVER. Returns 0 if successful, else a negative
@@ -147,7 +156,7 @@ char *kvserver_get_info_message(kvserver_t *server) {
  *
  * Checkpoint 2 only. */
 void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *respmsg) {
-  if (reqmsg == NULL || respmsg == NULL)
+  if (reqmsg == NULL || respmsg == NULL || server == NULL)
     return;
 
   int error;
@@ -166,7 +175,14 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
     case PUTREQ:
       tpclog_log(&server->log, PUTREQ, reqmsg->key, reqmsg->value);
       if (kvserver_put_check(server, reqmsg->key, reqmsg->value) == 0) {
-        server->msg = reqmsg;
+        if ((error = copy_and_store_kvmessage(server, reqmsg)) == -1) {
+          respmsg->type = RESP;
+          respmsg->message = ERRMSG_GENERIC_ERROR;
+          return;
+        }
+        // printf("\n\n\n\nWhat now????\n");
+        // printf("server's msg looks like (key, value): (%s, %s)\n\n", server->msg->key, server->msg->value);
+        // server->msg = reqmsg;
         respmsg->type = VOTE_COMMIT;
       } else {
         respmsg->type = VOTE_ABORT;
@@ -176,7 +192,12 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
     case DELREQ:
       tpclog_log(&server->log, DELREQ, reqmsg->key, reqmsg->value);
       if (kvserver_del_check(server, reqmsg->key) == 0) {
-        server->msg = reqmsg;
+        if ((error = copy_and_store_kvmessage(server, reqmsg)) == -1) {
+          respmsg->type = RESP;
+          respmsg->message = ERRMSG_GENERIC_ERROR;
+          return;
+        }
+        // server->msg = reqmsg;
         respmsg->type = VOTE_COMMIT;
       } else {
         respmsg->type = VOTE_ABORT;
@@ -188,8 +209,10 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
       respmsg->type = ACK;
       if (server->msg->type == PUTREQ) {
         kvserver_put(server, server->msg->key, server->msg->value);
-      } else {
+      } else if (server->msg->type == DELREQ) {
         kvserver_del(server, server->msg->key);
+      } else {
+        printf("\nUNEXPECTED ERROR: WHOA WHOA WHO WAHO WHOA SLDKF;ASDFJAL;SFD WHY DOE\n");
       }
       break;
 
@@ -209,7 +232,7 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
  * message. See the spec for details on logic and error messages. */
 void kvserver_handle_no_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *respmsg) {
   // OUR CODE HERE
-  if (reqmsg == NULL || respmsg == NULL)
+  if (reqmsg == NULL || respmsg == NULL || server == NULL)
     return;
 
   int error;
@@ -305,4 +328,25 @@ int kvserver_rebuild_state(kvserver_t *server) {
  * directory.  Also cleans the associated log. */
 int kvserver_clean(kvserver_t *server) {
   return kvstore_clean(&server->store);
+}
+
+/* Copies and mallocs MSG and stores it in the SERVER->msg field so that
+ * phase 2 can know what operation to do from phase 1. */
+static int copy_and_store_kvmessage(kvserver_t *server, kvmessage_t *msg) {
+  // OUR CODE HERE
+  free(server->msg);
+  server->msg = (kvmessage_t *) malloc(sizeof(kvmessage_t));
+  if (server->msg == NULL) {
+    return -1;
+  }
+  server->msg->key = (char *) malloc((strlen(msg->key) + 1) * sizeof(char));
+  server->msg->value = (char *) malloc((strlen(msg->value) + 1) * sizeof(char));
+  if (server->msg->key == NULL || server->msg->value == NULL) {
+    return -1;
+  }
+  strcpy(server->msg->key, msg->key);
+  strcpy(server->msg->value, msg->value);
+  server->msg->type = msg->type;
+  return 0;
+  // don't need to mess with the "message" field
 }

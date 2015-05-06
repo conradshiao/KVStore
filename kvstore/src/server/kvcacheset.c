@@ -121,8 +121,10 @@ int kvcacheset_del(kvcacheset_t *cacheset, char *key) {
 
   HASH_FIND_STR(cacheset->entries, key, e);
 
-  if (e == NULL)
+  if (e == NULL) {
+    pthread_rwlock_unlock(&cacheset->lock);
     return ERRNOKEY;
+  }
 
   HASH_DEL(cacheset->entries, e);
   DL_DELETE(cacheset->head, e);
