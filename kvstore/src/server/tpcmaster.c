@@ -9,7 +9,6 @@
 #include "tpcmaster.h"
 
 // OUR CODE HERE
-#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -18,11 +17,12 @@
 #define TIMEOUT_SECONDS 2
 
 static int port_cmp(tpcslave_t *a, tpcslave_t *b);
+static void sort_slaves_list(tpcmaster_t *master, bool force_sort);
+static void update_check_master_state(tpcmaster_t *master);
 
 static void phase1(tpcmaster_t *master, tpcslave_t *slave,
                    kvmessage_t *reqmsg, callback_t callback);
-static void phase2(tpcmaster_t *master, tpcslave_t *slave,
-                   kvmessage_t *reqmsg, callback_t callback);
+static void phase2(tpcslave_t *slave, kvmessage_t *reqmsg, callback_t callback);
 
 /* Initializes a tpcmaster. Will return 0 if successful, or a negative error
  * code if not. SLAVE_CAPACITY indicates the maximum number of slaves that
@@ -49,6 +49,7 @@ int tpcmaster_init(tpcmaster_t *master, unsigned int slave_capacity,
   master->client_req = NULL;
   master->sorted = false;
   master->state = TPC_INIT;
+  master->err_msg = NULL;
   return 0;
 }
 
@@ -64,6 +65,16 @@ int64_t hash_64_bit(char *s) {
   return h;
 }
 
+// OUR CODE HERE
+/* Sorts the slaves list of master and updates its "sorted" field. Checks to see if
+   we need to sort based on FORCE_SORT or if the "sorted" field is already false. */
+static void sort_slaves_list(tpcmaster_t *master, bool force_sort) {
+  if (force_sort || !master->sorted) {
+      CDL_SORT(master->slaves_head, port_cmp);
+      master->sorted = true;
+  }
+}
+
 /* Handles an incoming kvmessage REQMSG, and populates the appropriate fields
  * of RESPMSG as a response. RESPMSG and REQMSG both must point to valid
  * kvmessage_t structs. Assigns an ID to the slave by hashing a string in the
@@ -75,21 +86,30 @@ int64_t hash_64_bit(char *s) {
  * Checkpoint 2 only. */
 void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg, kvmessage_t *respmsg) {
   // OUR CODE HERE
-  if (respmsg == NULL || reqmsg == NULL)
+  if (respmsg == NULL) {
     return;
-
-  char *port = reqmsg->value;
-  char *hostname = reqmsg->key;
-  int port_strlen = strlen(reqmsg->value);
-  int hostname_strlen = strlen(reqmsg->key);
-
-  /* Need to add 2, one for null terminator and one for the ":". */
-  char *format_string = (char *) malloc((port_strlen + hostname_strlen + 2) * sizeof(char));
-  if (format_string == NULL) {
+  }
+  respmsg->type = RESP; // error or not, message type will be RESP
+  if (!reqmsg || !master || !reqmsg->value || !reqmsg->key) {
     respmsg->message = ERRMSG_GENERIC_ERROR;
     return;
   }
 
+  /* These variables used to determine if we want to reset master's original state,
+    if we use goto upon encountering any error. */
+  tpc_state_t orig_state = master->state;
+
+  char *port = reqmsg->value;
+  char *hostname = reqmsg->key;
+  int port_strlen = strlen(port);
+  int hostname_strlen = strlen(hostname);
+
+  /* Need to add 2, one for null terminator and one for ':' */
+  char *format_string = (char *) malloc(sizeof(char) * (port_strlen + hostname_strlen + 2));
+  if (format_string == NULL) {
+    respmsg->message = ERRMSG_GENERIC_ERROR;
+    return;
+  }
   strcpy(format_string, port);
   strcat(format_string, ":");
   strcat(format_string, hostname);
@@ -100,14 +120,10 @@ void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg, kvmessage_t *r
 
   /* Check to see if slave is still in the list. */
   tpcslave_t *elt;
-  CDL_FOREACH(master->slaves_head, elt) {
-    if (elt->id > hash_val) {
-      break;
-    }
-    if (elt->id == hash_val) { // slave already in list
-      respmsg->message = MSG_SUCCESS;
-      goto unlock;
-    }
+  CDL_SEARCH_SCALAR(master->slaves_head, elt, id, hash_val);
+  if (elt != NULL) { // slave found to be already in list
+    respmsg->message = MSG_SUCCESS;
+    goto unlock;
   }
 
   if (master->slave_count == master->slave_capacity) {
@@ -115,9 +131,7 @@ void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg, kvmessage_t *r
     goto unlock;
   } else {
     master->slave_count++;
-    if (master->slave_count == master->slave_capacity) {
-      master->state = TPC_READY;
-    }
+    update_check_master_state(master);
   }
 
   tpcslave_t *slave = (tpcslave_t *) malloc(sizeof(tpcslave_t));
@@ -128,24 +142,25 @@ void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg, kvmessage_t *r
 
   /* Filling in appropriate fields of tpcslave_t */
   slave->id = hash_val;
-  slave->host = (char *) malloc((hostname_strlen + 1) * sizeof(char));
+  slave->host = (char *) malloc(sizeof(char) * (hostname_strlen + 1));
   if (slave->host == NULL) {
     respmsg->message = ERRMSG_GENERIC_ERROR;
     goto free_slave;
   }
   strcpy(slave->host, hostname);
+
   char *ptr;
   int num = strtol(port, &ptr, 10);
-  // if (*ptr != NULL) { // unsuccessful conversion
-  if (*ptr) {
+  /* strtol on empty strings convert them to 0, which is behavior we don't want. */
+  if (*ptr || strcmp(port, "") == 0) { // check for unsuccessful conversion
     respmsg->message = ERRMSG_GENERIC_ERROR;
     goto free_slave_host;
   }
   slave->port = num;
   CDL_PREPEND(master->slaves_head, slave);
-  CDL_SORT(master->slaves_head, port_cmp);
-  master->sorted = true;
+  sort_slaves_list(master, true);
   respmsg->message = MSG_SUCCESS;
+
   return;
 
   free_slave_host:
@@ -154,8 +169,11 @@ void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg, kvmessage_t *r
     free(slave);
   unlock:
     pthread_rwlock_unlock(&master->slave_lock);
+  /* reset to initializing state if registering last server ran into error */
+  master->state = orig_state;
 }
 
+// OUR CODE HERE
 /* Comparator function to be used to sort our DL list of tpcslave_t slaves. */
 static int port_cmp(tpcslave_t *a, tpcslave_t *b) {
   return a->id > b->id;
@@ -171,14 +189,11 @@ tpcslave_t *tpcmaster_get_primary(tpcmaster_t *master, char *key) {
   // OUR CODE HERE
   pthread_rwlock_wrlock(&master->slave_lock);
 
-  if (!master->sorted) {
-    CDL_SORT(master->slaves_head, port_cmp);
-    master->sorted = true;
-  }
+  sort_slaves_list(master, false);
 
   int64_t hash_val = hash_64_bit(key);
   tpcslave_t *elt;
-  if (master->slaves_head->prev->id < hash_val) { // highest slave ID < hash_val
+  if (master->slaves_head->prev->id < hash_val) { // max slave ID < hash_val
     elt = master->slaves_head;
   } else {
     CDL_FOREACH(master->slaves_head, elt) {
@@ -197,30 +212,18 @@ tpcslave_t *tpcmaster_get_primary(tpcmaster_t *master, char *key) {
  *
  * Checkpoint 2 only. */
 tpcslave_t *tpcmaster_get_successor(tpcmaster_t *master, tpcslave_t *predecessor) {
-  // OUR CODE HERE: i'm assuming we're guaranteed that predecessor is always in our list...
-  
+  // OUR CODE HERE
   pthread_rwlock_wrlock(&master->slave_lock);
 
-  if (!master->sorted) {
-    CDL_SORT(master->slaves_head, port_cmp);
-    master->sorted = true;
-  }
+  sort_slaves_list(master, false);
 
   tpcslave_t *elt;
-  // bool saw_successor = false;
   CDL_SEARCH_SCALAR(master->slaves_head, elt, id, predecessor->id);
-  if (elt) {
-    elt = elt->next;
-    pthread_rwlock_unlock(&master->slave_lock);
-    return elt;
-  } else {
-    printf("\n\n\n\n\n\n\n");
-    printf("WHOA WHOA WHOA HWOA HOLD UP NOW. WHY. HALP. PREDECESSOR ISN'T IN LIST\n");
-    printf("\n");
-    pthread_rwlock_unlock(&master->slave_lock);
-    return NULL;
-  }
 
+  assert(elt != NULL); // check to guarantee that predecessor is always in our list
+
+  pthread_rwlock_unlock(&master->slave_lock);
+  return elt->next;
 }
 
 /* Handles an incoming GET request REQMSG, and populates the appropriate fields
@@ -231,9 +234,15 @@ tpcslave_t *tpcmaster_get_successor(tpcmaster_t *master, tpcslave_t *predecessor
 void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
                           kvmessage_t *respmsg) {
   // OUR CODE HERE
-  // respmsg->message = ERRMSG_NOT_IMPLEMENTED;
-  if (respmsg == NULL || reqmsg == NULL)
+  int error = -1;
+  if (respmsg == NULL) {
     return;
+  } else if (master == NULL || reqmsg == NULL) {
+    goto generic_error;
+  } else if (reqmsg->key == NULL) {
+    error = ERRNOKEY;
+    goto generic_error;
+  }
 
   char *value;
   kvmessage_t *received_response;
@@ -245,22 +254,32 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
   } else {
     tpcslave_t *slave = tpcmaster_get_primary(master, reqmsg->key);
     int fd;
-    if ((fd = connect_to(slave->host, slave->port, TIMEOUT_SECONDS)) == -1) {
+    bool successful_connection = false;
+    int i;
+    for (i = 0; i < master->redundancy; i++) {
+      fd = connect_to(slave->host, slave->port, TIMEOUT_SECONDS);
+      if (fd == -1) { // try to get from next server
+        slave = slave->next;
+      } else {
+        successful_connection = true;
+        break;
+      }
+    }
+    if (!successful_connection) {
       goto generic_error;
     }
     kvmessage_send(reqmsg, fd);
     received_response = kvmessage_parse(fd);
+    close(fd);
     if (received_response == NULL) {
       goto generic_error;
     }
     if (strcmp(received_response->message, MSG_SUCCESS) == 0) {
-      respmsg->key = (char *) malloc((strlen(received_response->key) + 1) * sizeof(char));
-      respmsg->value = (char *) malloc((strlen(received_response->value) + 1) * sizeof(char));
+      respmsg->key = (char *) malloc(sizeof(char) * (strlen(received_response->key) + 1));
+      respmsg->value = (char *) malloc(sizeof(char) * (strlen(received_response->value) + 1));
       if (respmsg->key == NULL || respmsg->value == NULL) {
         goto free_fields;
       }
-      //FIXME: README: So okay. I'm doing this cuz piazza says so. but i think the piazza guy is wrong... lulz
-      /* See if i can modify this later to simply set respmsg equal to received_response... i think i can now. */
       strcpy(respmsg->key, received_response->key);
       strcpy(respmsg->value, received_response->value);
       respmsg->type = GETRESP;
@@ -272,17 +291,16 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
     }
     free(received_response);
   }
-  //printf("response: %s\n", respmsg->message);
-  //FIXME: README: Do we have to free the kvmessage_parse()??? I think we can here actually...
+
   return;
 
   free_fields:
-    free(received_response); // I think here?
+    free(received_response);
     free(respmsg->key);
     free(respmsg->value);
   generic_error:
     respmsg->type = RESP;
-    respmsg->message = ERRMSG_GENERIC_ERROR;
+    respmsg->message = GETMSG(error);
 }
 
 /* Handles an incoming TPC request REQMSG, and populates the appropriate fields
@@ -303,49 +321,62 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
  * Checkpoint 2 only. */
 void tpcmaster_handle_tpc(tpcmaster_t *master, kvmessage_t *reqmsg,
                           kvmessage_t *respmsg, callback_t callback) {
+  if (respmsg == NULL) {
+    return;
+  } else if (master == NULL || reqmsg == NULL || reqmsg->key == NULL) {
+    respmsg->type = RESP;
+    respmsg->message = ERRMSG_GENERIC_ERROR;
+    return;
+  }
+  update_check_master_state(master);
+  if ( master->state == TPC_INIT ||
+              (reqmsg->type == PUTREQ && reqmsg->value == NULL) ||
+              (reqmsg->type != PUTREQ && reqmsg->type != DELREQ))
+    {
+      respmsg->type = RESP;
+      respmsg->message = ERRMSG_GENERIC_ERROR;
+      return;
+    }
 
-  
-  if (reqmsg == NULL || respmsg == NULL)
-    return; 
-  assert (reqmsg->type == PUTREQ || reqmsg->type == DELREQ);
+  /* Phase 1 of TPC being set up and executed here. */
   tpcslave_t *primary = tpcmaster_get_primary(master, reqmsg->key);
   tpcslave_t *iter = primary;
-  master->state = TPC_COMMIT;
+  master->state = TPC_COMMIT; // initialized here, will be changed if a server fails
   int i;
   for (i = 0; i < master->redundancy; i++) {
     phase1(master, iter, reqmsg, callback);
-    if ((iter = iter->next) == NULL) {
-      iter = master->slaves_head;
-    }
+    iter = iter->next; // we're using a circular doubly-linked list
   }
 
+  /* Necessary as described by documentation between phase 1 and 2. */
   if (callback != NULL) {
     callback(NULL);
   }
 
+  /* Setting up the global message that master will send to slave servers. */
   kvmessage_t globalmsg;
   memset(&globalmsg, 0, sizeof(kvmessage_t));
-  if (master->state == TPC_COMMIT) { // we commit during phase1 function... yes?
+  if (master->state == TPC_COMMIT) {
     globalmsg.type = COMMIT;
   } else { 
-    assert(master->state == TPC_ABORT);
     globalmsg.type = ABORT;
   }
+
+  /* Phase 2 of TPC being set up and executed here. */
   iter = primary;
   for (i = 0; i < master->redundancy; i++) {
-    phase2(master, iter, &globalmsg, callback);
-    if ((iter = iter->next) == NULL) {
-      iter = master->slaves_head;
-    }
+    phase2(iter, &globalmsg, callback);
+    iter = iter->next;
   }
+
+  respmsg->type = RESP;
   if (master->state == TPC_COMMIT) {
-    respmsg->type = RESP;
     respmsg->message = MSG_SUCCESS;
   } else { 
     assert(master->state == TPC_ABORT);
-    respmsg->type = RESP;
-    respmsg->message = GETMSG(-1); // which error?
-  }  
+    respmsg->message = master->err_msg;
+  }
+  master->state = TPC_READY;
 }
 
 /* Handles an incoming kvmessage REQMSG, and populates the appropriate fields
@@ -401,11 +432,6 @@ void tpcmaster_handle(tpcmaster_t *master, int sockfd, callback_t callback) {
   }
   kvmessage_send(&respmsg, sockfd);
   kvmessage_free(reqmsg);
-  //FIXME: README: So will said we have to move kvmessage_free() if we want to 
-  // save it as a field. but... i think the skeleton code looks right already though.
-  // doesn't tpcmaster_handle_tpc() finish phase 1 and 2, meaning kvmessage_free() works perfectly fine here?
-  //
-  // else.. where else do we free it?
   if (respmsg.key != NULL)
     free(respmsg.key);
 }
@@ -415,9 +441,9 @@ void tpcmaster_clear_cache(tpcmaster_t *tpcmaster) {
   kvcache_clear(&tpcmaster->cache);
 }
 
-
 /* Send and receive message to and from slave in phase 1 of TPC */
-static void phase1(tpcmaster_t *tpcmaster, tpcslave_t *slave, kvmessage_t *reqmsg, callback_t callback) {
+static void phase1(tpcmaster_t *master, tpcslave_t *slave,
+                   kvmessage_t *reqmsg, callback_t callback) {
   int fd = connect_to(slave->host, slave->port, 2);
   if (fd == -1) {
     if (callback != NULL) {
@@ -427,15 +453,17 @@ static void phase1(tpcmaster_t *tpcmaster, tpcslave_t *slave, kvmessage_t *reqms
   }
   kvmessage_send(reqmsg, fd);
   kvmessage_t *temp = kvmessage_parse(fd);
-  if (temp->type == VOTE_ABORT) {
-    tpcmaster->state = TPC_ABORT;
+  close(fd);
+  if (temp == NULL || temp->type == VOTE_ABORT) {
+    master->state = TPC_ABORT;
+    /* okay to do right before free-ing because "message" is literal string from kvconstants.h */
+    master->err_msg = temp->message;
   }
-  // else if (temp->type == VOTE_COMMIT)
-  //   do nothing.. right?
+  free(temp);
 }
 
 /* Send and receive message to and from slave in phase 2 of TPC */
-static void phase2(tpcmaster_t *tpcmaster, tpcslave_t *slave, kvmessage_t *reqmsg, callback_t callback) {
+static void phase2(tpcslave_t *slave, kvmessage_t *reqmsg, callback_t callback) {
   // OUR CODE HERE
   int fd = connect_to(slave->host, slave->port, 2);
   if (fd == -1) {
@@ -449,6 +477,14 @@ static void phase2(tpcmaster_t *tpcmaster, tpcslave_t *slave, kvmessage_t *reqms
     kvmessage_t *response = kvmessage_parse(fd);
     if (response->type == ACK)
       break;
+    free(response);
   }
+  close(fd);
+}
 
+/* Checks to see if state of the master has moved on from initialization. */
+static void update_check_master_state(tpcmaster_t *master) {
+  if (master->slave_count == master->slave_capacity) {
+    master->state = TPC_READY;
+  }
 }

@@ -64,29 +64,25 @@ int kvserver_register_master(kvserver_t *server, int sockfd) {
   reqmsg->type = REGISTER;
   reqmsg->key = (char *) malloc((strlen(server->hostname) + 1) * sizeof(char));
   if (reqmsg->key == NULL) {
-    free(reqmsg);
+    kvmessage_free(reqmsg);
     return -1;
   }
   strcpy(reqmsg->key, server->hostname);
   reqmsg->value = (char *) malloc(sizeof(char) * PORT_NUM_LENGTH); // max number is 2^16 - 1
   if (reqmsg->value == NULL) {
-    free(reqmsg->key);
-    free(reqmsg);
+    kvmessage_free(reqmsg);
     return -1;
   }
   sprintf(reqmsg->value, "%d", server->port);
   kvmessage_send(reqmsg, sockfd);
   kvmessage_t *response;
   if ((response = kvmessage_parse(sockfd)) == NULL) {
-    free(response);
     return -1;
   } else if (strcmp(MSG_SUCCESS, response->message) != 0) {
-    free(response);
-    return -1; // might change later to return specific error but how to get it.
+    kvmessage_free(response);
+    return -1;
   } else {
-    free(response);
-    printf("SHOULD HIT THIS CASE ALMOST ALWAYS.. RIGHT??????????????\n");
-    server->state = TPC_READY;
+    kvmessage_free(response);
     return 0;
   }
 }
@@ -159,17 +155,32 @@ char *kvserver_get_info_message(kvserver_t *server) {
  * kvmessage_t structs. Assumes that the request should be handled as a TPC
  * message. This should also log enough information in the server's TPC log to
  * be able to recreate the current state of the server upon recovering from
- * failure.  See the spec for details on logic and error messages.
+ * failure. See the spec for details on logic and error messages.
  *
  * Checkpoint 2 only. */
 void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *respmsg) {
   // OUR CODE HERE
-  if (reqmsg == NULL || respmsg == NULL || server == NULL)
+  int error = -1;
+  if (respmsg == NULL) {
     return;
+  } else if (reqmsg == NULL || server == NULL) {
+    goto unsuccessful_request;
+  } else if (reqmsg->key == NULL) {
+    if (reqmsg->type == GETREQ || reqmsg->type == PUTREQ || reqmsg->type == DELREQ) {
+      error = ERRNOKEY;
+      goto unsuccessful_request;
+    }
+  } else if (reqmsg->value == NULL && reqmsg->type == PUTREQ) {
+    goto unsuccessful_request;
+  }
 
-  int error;
   switch (reqmsg->type) {
+
     case GETREQ:
+      if (reqmsg->key == NULL) {
+        error = ERRNOKEY;
+        goto unsuccessful_request;
+      }
       if ((error = kvserver_get(server, reqmsg->key, &reqmsg->value)) == 0) {
         respmsg->type = GETRESP;
         respmsg->key = reqmsg->key;
@@ -188,6 +199,7 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
           respmsg->message = ERRMSG_GENERIC_ERROR;
           return;
         }
+        //FIXME: OLIVIA: this is a hacking way...
         if (respmsg->type == VOTE_COMMIT) {   // this is to check that prev REQ has been committed
           respmsg->type = RESP;
           respmsg->message = ERRMSG_INVALID_REQUEST;
@@ -246,6 +258,13 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
       respmsg->message = ERRMSG_INVALID_REQUEST;
       break;  
   }
+
+  return;
+
+  /* All unsuccessful requests will be handled in the same manner. */
+  unsuccessful_request:
+    respmsg->type = RESP;
+    respmsg->message = GETMSG(error); 
 }
 
 /* Handles an incoming kvmessage REQMSG, and populates the appropriate fields
@@ -254,10 +273,20 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
  * message. See the spec for details on logic and error messages. */
 void kvserver_handle_no_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *respmsg) {
   // OUR CODE HERE
-  if (reqmsg == NULL || respmsg == NULL || server == NULL)
+  int error = -1;
+  if (respmsg == NULL) {
     return;
+  } else if (reqmsg == NULL || server == NULL) {
+    goto unsuccessful_request;
+  } else if (reqmsg->key == NULL) {
+    if (reqmsg->type == GETREQ || reqmsg->type == PUTREQ || reqmsg->type == DELREQ) {
+      error = ERRNOKEY;
+      goto unsuccessful_request;
+    }
+  } else if (reqmsg->value == NULL && reqmsg->type == PUTREQ) {
+    goto unsuccessful_request;
+  }
 
-  int error;
   switch (reqmsg->type) {
 
     case GETREQ:
@@ -292,6 +321,7 @@ void kvserver_handle_no_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t
       respmsg->type = INFO;
       respmsg->message = kvserver_get_info_message(server);
       break;
+
     default:
       respmsg->type = RESP;
       respmsg->message = ERRMSG_NOT_IMPLEMENTED;
@@ -324,10 +354,10 @@ void kvserver_handle(kvserver_t *server, int sockfd, void *extra) {
     server_handler(server, reqmsg, respmsg);
   }
   kvmessage_send(respmsg, sockfd);
-  // OUR CODE HERE
+  // OUR CODE HERE: I think we don't need to comment this out anymore... lol
   /* The tpcmaster needs to keep this kvmessage -- freeing is on him now. */
-  // if (reqmsg != NULL)
-  //   kvmessage_free(reqmsg);
+  if (reqmsg != NULL)
+    kvmessage_free(reqmsg);
 }
 
 /* Restore SERVER back to the state it should be in, according to the
@@ -355,28 +385,28 @@ int kvserver_clean(kvserver_t *server) {
 /* Copies and mallocs MSG and stores it in the SERVER->msg field so that
  * phase 2 can know what operation to do from phase 1. */
 static int copy_and_store_kvmessage(kvserver_t *server, kvmessage_t *msg) {
-  // OUR CODE HERE
-  free(server->msg);
-  server->msg = (kvmessage_t *) malloc(sizeof(kvmessage_t));
-  if (server->msg == NULL)
+  /* OUR CODE HERE: We don't need to worry about freeing mallocs, because we
+     have kvmessage_free everytime at the beginning of this function. */
+
+  (server->msg != NULL) ? kvmessage_free(server->msg) : free(server->msg);
+  if ((server->msg = (kvmessage_t *) malloc(sizeof(kvmessage_t))) == NULL)
     return -1;
 
-  if (msg->key)
-    server->msg->key = (char *) malloc((strlen(msg->key) + 1) * sizeof(char));
-  if (msg->value)
-    server->msg->value = (char *) malloc((strlen(msg->value) + 1) * sizeof(char));
-  if (server->msg->key == NULL || server->msg->value == NULL)
-    return -1;
-
-  if (msg->key)
+  if (msg->key != NULL) {
+    if ((server->msg->key = (char *) malloc(sizeof(char) * (strlen(msg->key) + 1))) == NULL)
+      return -1;
     strcpy(server->msg->key, msg->key);
-  else
+  } else {
     server->msg->key = NULL;
+  }
 
-  if (msg->value)
+  if (msg->value != NULL) {
+    if ((server->msg->value = (char *) malloc(sizeof(char) * (strlen(msg->value) + 1))) == NULL)
+      return -1;
     strcpy(server->msg->value, msg->value);
-  else
+  } else {
     server->msg->value = NULL;
+  }
 
   server->msg->type = msg->type;
   return 0;
