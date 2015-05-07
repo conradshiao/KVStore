@@ -47,6 +47,7 @@ int kvserver_init(kvserver_t *server, char *dirname, unsigned int num_sets,
   // OUR CODE HERE
   server->msg = NULL;
   server->state = TPC_INIT;
+  //gdb: what is server->state before this line above?
   return 0;
 }
 
@@ -82,6 +83,7 @@ int kvserver_register_master(kvserver_t *server, int sockfd) {
     kvmessage_free(response);
     return -1;
   } else {
+    server->state = TPC_READY;
     kvmessage_free(response);
     return 0;
   }
@@ -192,18 +194,18 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
       break;
 
     case PUTREQ:
+      //FIXME: OLIVIA: this is a hacking way...
+      if (respmsg->type == VOTE_COMMIT) {   // this is to check that prev REQ has been committed
+        respmsg->type = RESP;
+        respmsg->message = ERRMSG_INVALID_REQUEST;
+        return; 
+      }
       tpclog_log(&server->log, PUTREQ, reqmsg->key, reqmsg->value);
       if ((error = kvserver_put_check(server, reqmsg->key, reqmsg->value)) == 0) {
         if ((error = copy_and_store_kvmessage(server, reqmsg)) == -1) {
           respmsg->type = RESP;
           respmsg->message = ERRMSG_GENERIC_ERROR;
           return;
-        }
-        //FIXME: OLIVIA: this is a hacking way...
-        if (respmsg->type == VOTE_COMMIT) {   // this is to check that prev REQ has been committed
-          respmsg->type = RESP;
-          respmsg->message = ERRMSG_INVALID_REQUEST;
-          return; 
         }
         respmsg->type = VOTE_COMMIT;
       } else {
@@ -214,6 +216,7 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
 
     case DELREQ:
       tpclog_log(&server->log, DELREQ, reqmsg->key, reqmsg->value);
+      // gdb: null key, what does log.data look like?
       if ((error = kvserver_del_check(server, reqmsg->key)) == 0) {
         if ((error = copy_and_store_kvmessage(server, reqmsg)) == -1) {
           respmsg->type = RESP;
@@ -234,6 +237,7 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
 
     case COMMIT:
       tpclog_log(&server->log, COMMIT, reqmsg->key, reqmsg->value);
+      // what should i commit here????
       // respmsg->type = ACK;
       if (server->msg->type == PUTREQ) {
         if ((error = kvserver_put(server, server->msg->key, server->msg->value)) == 0) {
@@ -373,7 +377,58 @@ void kvserver_handle(kvserver_t *server, int sockfd, void *extra) {
  *
  * Checkpoint 2 only. */
 int kvserver_rebuild_state(kvserver_t *server) {
-  return -1;
+  // if (server->state == TPC_INIT) {
+  //   printf("WHAT WHY THOUGH SLKFDJSLDFJSLDKF\n");
+  // }
+  if (server == NULL) {
+    return -1;
+  }
+  tpclog_iterate_begin(&server->log);
+  logentry_t *target_cmd = NULL;
+  while (tpclog_iterate_has_next(&server->log)) {
+    logentry_t *entry = tpclog_iterate_next(&server->log);
+    if (entry->type == PUTREQ || entry->type == DELREQ) {
+      target_cmd = entry;
+    } else if (entry->type == COMMIT) {
+      if (target_cmd->type == PUTREQ) {
+        int key_size = strlen(target_cmd->data) + 1;
+        char *key = malloc(sizeof(char) * key_size);
+        if (key == NULL) {
+          return -1;
+        }
+        strcpy(key, target_cmd->data);
+
+        char *value = malloc(sizeof(char) * (target_cmd->length - key_size));
+        if (value == NULL) {
+          free(key);
+          return -1;
+        }
+        char *val = target_cmd->data;
+        while (*val != '\0') {
+          val++;
+        }
+        val++;
+        strcpy(value, val);
+        kvserver_put(server, key, value);
+      } else { // DELREQ here
+        char *key = malloc(sizeof(char) * (target_cmd->length + 1)); // + 1 to be safe. idk if they include null terminator or not..
+        if (key == NULL) {
+          return -1;
+        }
+        strcpy(key, target_cmd->data);
+        kvserver_del(server, key);
+      }
+      target_cmd = NULL;
+    } else { // entry->type == ABORT
+      target_cmd = NULL;
+    }
+  }
+
+  if (target_cmd == NULL) {
+    tpclog_clear_log(&server->log);
+  }
+
+  return 0;
 }
 
 /* Deletes all current entries in SERVER's store and removes the store
