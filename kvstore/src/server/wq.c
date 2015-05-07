@@ -2,8 +2,6 @@
 #include "wq.h"
 #include "kvconstants.h"
 #include "utlist.h"
-// OUR CODE HERE
-#include <pthread.h>
 
 /* Initializes a work queue WQ. Sets up any necessary synchronization constructs. */
 void wq_init(wq_t *wq) {
