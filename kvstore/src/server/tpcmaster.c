@@ -176,19 +176,6 @@ tpcslave_t *tpcmaster_get_primary(tpcmaster_t *master, char *key) {
     master->sorted = true;
   }
 
-  // printf("\n\nTesting here!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
-  // if (master->slaves_head) {
-  //   printf("slaves head: id is %lld, host name is %s\n", master->slaves_head->id, master->slaves_head->host);
-  // } else {
-  //   printf("slaves head is empty. :(\n");
-  // }
-  // if (master->slaves_head->prev) {
-  //   printf("AHAHAHAHAHAHA WHAT NOW YO\n");
-  //   printf("this id is: %d", master->slaves_head->prev->id);
-  // } else {
-  //   printf("boo.\n");
-  // }
-
   int64_t hash_val = hash_64_bit(key);
   tpcslave_t *elt;
   if (master->slaves_head->prev->id < hash_val) { // highest slave ID < hash_val
@@ -199,7 +186,6 @@ tpcslave_t *tpcmaster_get_primary(tpcmaster_t *master, char *key) {
         break;
       }
     }
-    // printf("\n\n\n\n\nWHOAAAAAAAAAAAAAAAAAA HOLD UP NOW. THIS SHOULD NEVER HIT. HALP. I'M IN TPCMASTER_GET_PRIMARY\n");
   }
 
   pthread_rwlock_unlock(&master->slave_lock);
@@ -234,26 +220,7 @@ tpcslave_t *tpcmaster_get_successor(tpcmaster_t *master, tpcslave_t *predecessor
     pthread_rwlock_unlock(&master->slave_lock);
     return NULL;
   }
-  
-  /*
-  pthread_rwlock_wrlock(&master->slave_lock);
 
-  CDL_SORT(master->slaves_head, port_cmp);
-  tpcslave_t *elt;
-  bool saw_successor = false;
-  CDL_FOREACH(master->slaves_head, elt)
-    {
-      //printf("slave's id port num is: %d\n", elt->id);
-      if (saw_successor) {
-        pthread_rwlock_unlock(&master->slave_lock);
-        return elt;
-      }
-      if (elt == predecessor) {
-        saw_successor = true;
-      }
-    }
-  pthread_rwlock_unlock(&master->slave_lock);
-  return master->slaves_head; */
 }
 
 /* Handles an incoming GET request REQMSG, and populates the appropriate fields
@@ -337,40 +304,32 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
 void tpcmaster_handle_tpc(tpcmaster_t *master, kvmessage_t *reqmsg,
                           kvmessage_t *respmsg, callback_t callback) {
 
-  assert (reqmsg->type == PUTREQ || reqmsg->type == DELREQ);
-  if (reqmsg == NULL || respmsg == NULL || master->state == TPC_INIT)
+  
+  if (reqmsg == NULL || respmsg == NULL)
     return; 
-
-  tpcslave_t *primary = tpcmaster_get_primary(master, respmsg->key);
+  assert (reqmsg->type == PUTREQ || reqmsg->type == DELREQ);
+  tpcslave_t *primary = tpcmaster_get_primary(master, reqmsg->key);
   tpcslave_t *iter = primary;
+  master->state = TPC_COMMIT;
   int i;
   for (i = 0; i < master->redundancy; i++) {
     phase1(master, iter, reqmsg, callback);
     if ((iter = iter->next) == NULL) {
       iter = master->slaves_head;
     }
-    // iter = iter->next;
-    // if (iter == NULL) {
-    //   iter = master->slaves_head;
-    // }
   }
 
-  // tpcslave_t *slave1 = tpcmaster_get_primary(master, respmsg->key);
-  // phase1(master, slave1, reqmsg, callback);
-  // tpcslave_t *slave2 = tpcmaster_get_successor(master, slave1);
-  // phase1(master, slave2, reqmsg, callback);
   if (callback != NULL) {
     callback(NULL);
   }
 
   kvmessage_t globalmsg;
   memset(&globalmsg, 0, sizeof(kvmessage_t));
-  if (/*master->commit*/ master) { // we commit during phase1 function... yes?
-    globalmsg.type = VOTE_COMMIT;
-  } else {
-    globalmsg.type = VOTE_ABORT;
-    // respmsg->message = GETMSG(error); how do i get the error?
-    //FIXME: README: Do we need to return type of error?
+  if (master->state == TPC_COMMIT) { // we commit during phase1 function... yes?
+    globalmsg.type = COMMIT;
+  } else { 
+    assert(master->state == TPC_ABORT);
+    globalmsg.type = ABORT;
   }
   iter = primary;
   for (i = 0; i < master->redundancy; i++) {
@@ -379,9 +338,14 @@ void tpcmaster_handle_tpc(tpcmaster_t *master, kvmessage_t *reqmsg,
       iter = master->slaves_head;
     }
   }
-  // phase2(master, slave1, globalmsg, callback);
-  // phase2(master, slave2, globalmsg, callback);
-// }
+  if (master->state == TPC_COMMIT) {
+    respmsg->type = RESP;
+    respmsg->message = MSG_SUCCESS;
+  } else { 
+    assert(master->state == TPC_ABORT);
+    respmsg->type = RESP;
+    respmsg->message = GETMSG(-1); // which error?
+  }  
 }
 
 /* Handles an incoming kvmessage REQMSG, and populates the appropriate fields
@@ -400,7 +364,6 @@ void tpcmaster_info(tpcmaster_t *master, kvmessage_t *reqmsg,
   tpcslave_t *elt;
   pthread_rwlock_rdlock(&master->slave_lock);
   CDL_FOREACH(master->slaves_head, elt) {
-    // README: karen: looked it up, it's okay to use buf like this
     sprintf(buf, "\n{%s, %d}", elt->host, elt->port);
     strcat(info, buf);
   }
@@ -464,11 +427,11 @@ static void phase1(tpcmaster_t *tpcmaster, tpcslave_t *slave, kvmessage_t *reqms
   }
   kvmessage_send(reqmsg, fd);
   kvmessage_t *temp = kvmessage_parse(fd);
-  if (temp->type == VOTE_COMMIT) {
-
-  } else if (temp->type == VOTE_ABORT) {
-    // tpcmaster->commit = false;    
+  if (temp->type == VOTE_ABORT) {
+    tpcmaster->state = TPC_ABORT;
   }
+  // else if (temp->type == VOTE_COMMIT)
+  //   do nothing.. right?
 }
 
 /* Send and receive message to and from slave in phase 2 of TPC */
@@ -487,8 +450,5 @@ static void phase2(tpcmaster_t *tpcmaster, tpcslave_t *slave, kvmessage_t *reqms
     if (response->type == ACK)
       break;
   }
-  //FIXME: README: something's wrong here i think. we're just sending it one at a time. we need to
-  //send it all at once and then 
-  // CONRAD'S CODE HERE
-  kvmessage_free(tpcmaster->client_req);
+
 }
