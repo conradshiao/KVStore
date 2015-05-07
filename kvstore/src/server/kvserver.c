@@ -188,11 +188,11 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
           respmsg->message = ERRMSG_GENERIC_ERROR;
           return;
         }
-        // if (server->state != TPC_READY) {
-        //   respmsg->type = RESP;
-        //   respmsg->message = ERRMSG_INVALID_REQUEST;
-        //   return; 
-        // }
+        if (respmsg->type == VOTE_COMMIT) {   // this is to check that prev REQ has been committed
+          respmsg->type = RESP;
+          respmsg->message = ERRMSG_INVALID_REQUEST;
+          return; 
+        }
         respmsg->type = VOTE_COMMIT;
       } else {
         respmsg->type = VOTE_ABORT;
@@ -208,11 +208,11 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
           respmsg->message = ERRMSG_GENERIC_ERROR;
           return;
         }
-        // if (server->state != TPC_READY) {
-        //   respmsg->type = RESP;
-        //   respmsg->message = ERRMSG_INVALID_REQUEST;
-        //   return; 
-        // }
+        if (respmsg->type == VOTE_COMMIT) {
+          respmsg->type = RESP;
+          respmsg->message = ERRMSG_INVALID_REQUEST;
+          return; 
+        }
         respmsg->type = VOTE_COMMIT;
       } else {
         respmsg->type = VOTE_ABORT;
