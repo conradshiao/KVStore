@@ -161,7 +161,7 @@ int kvserver_tpc_del_commit(void) {
   reqmsg.key = "MYKEY";
   reqmsg.value = "MYVALUE";
   kvserver_handle_tpc(&testserver, &reqmsg, &respmsg);
-  ASSERT_EQUAL(respmsg.type, VOTE_COMMIT);
+  ASSERT_EQUAL(respmsg.type, VOTE_COMMIT)
   reqmsg.type = COMMIT;
   reqmsg.key = NULL;
   reqmsg.value = NULL;
@@ -238,8 +238,10 @@ int kvserver_tpc_concurrent_del_put(void) {
   reqmsg.key = "MYKEY2";
   reqmsg.value = "MYVALUE2";
   kvserver_handle_tpc(&testserver, &reqmsg, &respmsg);
-  ASSERT_EQUAL(respmsg.type, RESP);
+  ASSERT_EQUAL(respmsg.type, RESP);   // This is not equal so it is failing here
+  printf("hello?\n");
   ASSERT_STRING_EQUAL(respmsg.message, ERRMSG_INVALID_REQUEST);
+  printf("\nis this errmessage? %s", respmsg.message);
   return 1;
 }
 

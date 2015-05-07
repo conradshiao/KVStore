@@ -188,9 +188,11 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
           respmsg->message = ERRMSG_GENERIC_ERROR;
           return;
         }
-        // printf("\n\n\n\nWhat now????\n");
-        // printf("server's msg looks like (key, value): (%s, %s)\n\n", server->msg->key, server->msg->value);
-        // server->msg = reqmsg;
+        if (server->state != TPC_READY) {
+          respmsg->type = RESP;
+          respmsg->message = ERRMSG_INVALID_REQUEST;
+          return; 
+        }
         respmsg->type = VOTE_COMMIT;
       } else {
         respmsg->type = VOTE_ABORT;
@@ -206,7 +208,11 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
           respmsg->message = ERRMSG_GENERIC_ERROR;
           return;
         }
-        // server->msg = reqmsg;
+        if (server->state != TPC_READY) {
+          respmsg->type = RESP;
+          respmsg->message = ERRMSG_INVALID_REQUEST;
+          return; 
+        }
         respmsg->type = VOTE_COMMIT;
       } else {
         respmsg->type = VOTE_ABORT;
@@ -233,10 +239,12 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
     case ABORT:
       tpclog_log(&server->log, ABORT, reqmsg->key, reqmsg->value);
       respmsg->type = ACK;
+      break;
 
     default:
       respmsg->type = RESP;
-      respmsg->message = ERRMSG_INVALID_REQUEST;    
+      respmsg->message = ERRMSG_INVALID_REQUEST;
+      break;  
   }
 }
 
@@ -350,17 +358,26 @@ static int copy_and_store_kvmessage(kvserver_t *server, kvmessage_t *msg) {
   // OUR CODE HERE
   free(server->msg);
   server->msg = (kvmessage_t *) malloc(sizeof(kvmessage_t));
-  if (server->msg == NULL) {
+  if (server->msg == NULL)
     return -1;
-  }
-  server->msg->key = (char *) malloc((strlen(msg->key) + 1) * sizeof(char));
-  server->msg->value = (char *) malloc((strlen(msg->value) + 1) * sizeof(char));
-  if (server->msg->key == NULL || server->msg->value == NULL) {
+
+  if (msg->key)
+    server->msg->key = (char *) malloc((strlen(msg->key) + 1) * sizeof(char));
+  if (msg->value)
+    server->msg->value = (char *) malloc((strlen(msg->value) + 1) * sizeof(char));
+  if (server->msg->key == NULL || server->msg->value == NULL)
     return -1;
-  }
-  strcpy(server->msg->key, msg->key);
-  strcpy(server->msg->value, msg->value);
+
+  if (msg->key)
+    strcpy(server->msg->key, msg->key);
+  else
+    server->msg->key = NULL;
+
+  if (msg->value)
+    strcpy(server->msg->value, msg->value);
+  else
+    server->msg->value = NULL;
+
   server->msg->type = msg->type;
   return 0;
-  // don't need to mess with the "message" field
 }
