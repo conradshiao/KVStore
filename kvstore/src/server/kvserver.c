@@ -162,6 +162,7 @@ char *kvserver_get_info_message(kvserver_t *server) {
  * Checkpoint 2 only. */
 void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *respmsg) {
   // OUR CODE HERE
+  printf("i am in tpc mode\n");
   int error = -1;
   if (respmsg == NULL) {
     return;
@@ -176,17 +177,18 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
     goto unsuccessful_request;
   }
 
+  // printf("\n\nlkfjaslkdfjlaksdfj current state of server is what though???\n");
+
   switch (reqmsg->type) {
 
     case GETREQ:
-      if (reqmsg->key == NULL) {
-        error = ERRNOKEY;
-        goto unsuccessful_request;
-      }
+      // printf("a;skldf;alsdfjas;ldfjas;ldkfjas;ldfja\n");
       if ((error = kvserver_get(server, reqmsg->key, &reqmsg->value)) == 0) {
+        // printf("i'm in kvserver get handle case\n");
         respmsg->type = GETRESP;
         respmsg->key = reqmsg->key;
         respmsg->value = reqmsg->value;
+        respmsg->message = MSG_SUCCESS;
       } else {
         respmsg->type = RESP;
         respmsg->message = GETMSG(error);
@@ -278,6 +280,7 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
 void kvserver_handle_no_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *respmsg) {
   // OUR CODE HERE
   int error = -1;
+  printf("\ni am in no_tpc mode\n");
   if (respmsg == NULL) {
     return;
   } else if (reqmsg == NULL || server == NULL) {
@@ -344,6 +347,7 @@ void kvserver_handle_no_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t
  * and sends back a response message.  This should call out to the appropriate
  * internal handler. */
 void kvserver_handle(kvserver_t *server, int sockfd, void *extra) {
+  printf("\nam I in here nowwwwwwwwwww?\n");
   kvmessage_t *reqmsg, *respmsg;
   respmsg = calloc(1, sizeof(kvmessage_t));
   reqmsg = kvmessage_parse(sockfd);

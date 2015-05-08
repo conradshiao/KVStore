@@ -19,6 +19,7 @@
 static int port_cmp(tpcslave_t *a, tpcslave_t *b);
 static void sort_slaves_list(tpcmaster_t *master, bool force_sort);
 static void update_check_master_state(tpcmaster_t *master);
+static int copy_and_store_kvmessage(tpcmaster_t *master, kvmessage_t *msg);
 
 static void phase1(tpcmaster_t *master, tpcslave_t *slave,
                    kvmessage_t *reqmsg, callback_t callback);
@@ -70,8 +71,8 @@ int64_t hash_64_bit(char *s) {
    we need to sort based on FORCE_SORT or if the "sorted" field is already false. */
 static void sort_slaves_list(tpcmaster_t *master, bool force_sort) {
   if (force_sort || !master->sorted) {
-      CDL_SORT(master->slaves_head, port_cmp);
-      master->sorted = true;
+    CDL_SORT(master->slaves_head, port_cmp);
+    master->sorted = true;
   }
 }
 
@@ -90,8 +91,7 @@ void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg, kvmessage_t *r
     return;
   }
   respmsg->type = RESP; // error or not, message type will be RESP
-
-  /* strtol on empty strings convert strings to 0. */
+  /* For last check: strtol on empty strings convert strings to 0. */
   if (reqmsg == NULL || master == NULL || reqmsg->value == NULL ||
                         reqmsg->key == NULL|| strcmp(reqmsg->value, "") == 0) {
     respmsg->message = ERRMSG_GENERIC_ERROR;
@@ -217,6 +217,7 @@ tpcslave_t *tpcmaster_get_successor(tpcmaster_t *master, tpcslave_t *predecessor
   // OUR CODE HERE
   pthread_rwlock_wrlock(&master->slave_lock);
 
+
   sort_slaves_list(master, false);
 
   tpcslave_t *elt;
@@ -251,8 +252,16 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
   kvmessage_t *received_response;
   if (kvcache_get(&master->cache, reqmsg->key, &value) == 0) {
     respmsg->type = GETRESP;
-    respmsg->key = reqmsg->key;
-    respmsg->value = value;
+
+    if ((respmsg->key = (char *) malloc(sizeof(char) * (strlen(reqmsg->key) + 1))) == NULL)
+      goto generic_error;
+    strcpy(respmsg->key, reqmsg->key);
+
+    if ((respmsg->value = (char *) malloc(sizeof(char) * (strlen(value) + 1))) == NULL)
+      goto generic_error;
+
+    strcpy(respmsg->value, value);
+    free(value);
     respmsg->message = MSG_SUCCESS;
   } else {
     tpcslave_t *slave = tpcmaster_get_primary(master, reqmsg->key);
@@ -260,9 +269,8 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
     bool successful_connection = false;
     int i;
     for (i = 0; i < master->redundancy; i++) {
-      fd = connect_to(slave->host, slave->port, TIMEOUT_SECONDS);
-      if (fd == -1) { // try to get from next server
-        slave = slave->next;
+      if ((fd = connect_to(slave->host, slave->port, TIMEOUT_SECONDS)) == -1) {
+        slave = tpcmaster_get_successor(master, slave);
       } else {
         successful_connection = true;
         break;
@@ -277,7 +285,16 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
     if (received_response == NULL) {
       goto generic_error;
     }
-    if (strcmp(received_response->message, MSG_SUCCESS) == 0) {
+    printf("\ncococococ hi hi\n");
+    if (received_response->message == NULL) {
+      printf("is it null?\n\n");
+    }
+    if (received_response->message == NULL || strcmp(received_response->message, MSG_SUCCESS) != 0) {
+      printf("\nconrad what's up yo in the else case\n");
+      respmsg->type = RESP;
+      respmsg->message = received_response->message;
+    } else {
+      printf("\ns;adkfja;sldfjal; what's up yo\n");
       respmsg->key = (char *) malloc(sizeof(char) * (strlen(received_response->key) + 1));
       respmsg->value = (char *) malloc(sizeof(char) * (strlen(received_response->value) + 1));
       if (respmsg->key == NULL || respmsg->value == NULL) {
@@ -288,10 +305,24 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
       respmsg->type = GETRESP;
       respmsg->message = MSG_SUCCESS;
       kvcache_put(&master->cache, respmsg->key, respmsg->value);
-    } else {
-      respmsg->type = RESP;
-      respmsg->message = received_response->message;
     }
+    // if (strcmp(received_response->message, MSG_SUCCESS) == 0) {
+    //   printf("\nKaren what's up yo\n");
+    //   respmsg->key = (char *) malloc(sizeof(char) * (strlen(received_response->key) + 1));
+    //   respmsg->value = (char *) malloc(sizeof(char) * (strlen(received_response->value) + 1));
+    //   if (respmsg->key == NULL || respmsg->value == NULL) {
+    //     goto free_fields;
+    //   }
+    //   strcpy(respmsg->key, received_response->key);
+    //   strcpy(respmsg->value, received_response->value);
+    //   respmsg->type = GETRESP;
+    //   respmsg->message = MSG_SUCCESS;
+    //   kvcache_put(&master->cache, respmsg->key, respmsg->value);
+    // } else {
+    //       printf("\nKaren what's up yo in the else case\n");
+    //   respmsg->type = RESP;
+    //   respmsg->message = received_response->message;
+    // }
     free(received_response);
   }
 
@@ -351,7 +382,7 @@ void tpcmaster_handle_tpc(tpcmaster_t *master, kvmessage_t *reqmsg,
   int i;
   for (i = 0; i < master->redundancy; i++) {
     phase1(master, iter, reqmsg, callback);
-    iter = iter->next; // we're using a circular doubly-linked list
+    iter = tpcmaster_get_successor(master, iter);
   }
 
   /* Necessary as described by documentation between phase 1 and 2. */
@@ -372,7 +403,7 @@ void tpcmaster_handle_tpc(tpcmaster_t *master, kvmessage_t *reqmsg,
   iter = primary;
   for (i = 0; i < master->redundancy; i++) {
     phase2(iter, &globalmsg, callback);
-    iter = iter->next;
+    iter = tpcmaster_get_successor(master, iter);
   }
 
   respmsg->type = RESP;
@@ -402,6 +433,11 @@ void tpcmaster_info(tpcmaster_t *master, kvmessage_t *reqmsg,
   // OUR CODE HERE
   char buf[256];
   char *info = (char *) malloc((master->slave_count * MAX_INFOLINE_LENGTH + 256) * sizeof(char));
+  if (info == NULL) {
+    respmsg->type = RESP;
+    respmsg->message = ERRMSG_GENERIC_ERROR;
+    return;
+  }
   time_t ltime = time(NULL);
   strcpy(info, asctime(localtime(&ltime)));
   strcat(info, "Slaves:");
@@ -430,7 +466,11 @@ void tpcmaster_handle(tpcmaster_t *master, int sockfd, callback_t callback) {
   }
 
   // OUR CODE HERE
-  master->client_req = reqmsg;
+  int err;
+  if ((err = copy_and_store_kvmessage(master, reqmsg)) == -1) {
+    respmsg.message = ERRMSG_GENERIC_ERROR; // type is already set above to RESP
+    return;
+  }
 
   if (reqmsg->type == INFO) {
     tpcmaster_info(master, reqmsg, &respmsg);
@@ -504,4 +544,35 @@ static void update_check_master_state(tpcmaster_t *master) {
   if (master->slave_count == master->slave_capacity) {
     master->state = TPC_READY;
   }
+}
+
+// OUR CODE HERE
+/* Copies and mallocs MSG and stores it in the SERVER->msg field so that
+ * phase 2 can know what operation to do from phase 1. */
+static int copy_and_store_kvmessage(tpcmaster_t *master, kvmessage_t *msg) {
+  /* OUR CODE HERE: We don't need to worry about freeing mallocs, because we
+     have kvmessage_free everytime at the beginning of this function. */
+
+  (master->client_req != NULL) ? kvmessage_free(master->client_req) : free(master->client_req);
+  if ((master->client_req = (kvmessage_t *) malloc(sizeof(kvmessage_t))) == NULL)
+    return -1;
+
+  if (msg->key != NULL) {
+    if ((master->client_req->key = (char *) malloc(sizeof(char) * (strlen(msg->key) + 1))) == NULL)
+      return -1;
+    strcpy(master->client_req->key, msg->key);
+  } else {
+    master->client_req->key = NULL;
+  }
+
+  if (msg->value != NULL) {
+    if ((master->client_req->value = (char *) malloc(sizeof(char) * (strlen(msg->value) + 1))) == NULL)
+      return -1;
+    strcpy(master->client_req->value, msg->value);
+  } else {
+    master->client_req->value = NULL;
+  }
+
+  master->client_req->type = msg->type;
+  return 0;
 }
