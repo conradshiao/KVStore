@@ -239,9 +239,7 @@ int kvserver_tpc_concurrent_del_put(void) {
   reqmsg.value = "MYVALUE2";
   kvserver_handle_tpc(&testserver, &reqmsg, &respmsg);
   ASSERT_EQUAL(respmsg.type, RESP);   // This is not equal so it is failing here
-  printf("hello?\n");
   ASSERT_STRING_EQUAL(respmsg.message, ERRMSG_INVALID_REQUEST);
-  printf("\nis this errmessage? %s", respmsg.message);
   return 1;
 }
 
