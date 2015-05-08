@@ -251,6 +251,7 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
   char *value;
   kvmessage_t *received_response;
   if (kvcache_get(&master->cache, reqmsg->key, &value) == 0) {
+    // printf("MERP\n");
     respmsg->type = GETRESP;
 
     if ((respmsg->key = (char *) malloc(sizeof(char) * (strlen(reqmsg->key) + 1))) == NULL)
@@ -264,6 +265,7 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
     free(value);
     respmsg->message = MSG_SUCCESS;
   } else {
+    // printf("I am here\n");
     tpcslave_t *slave = tpcmaster_get_primary(master, reqmsg->key);
     int fd;
     bool successful_connection = false;
@@ -285,14 +287,24 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
     if (received_response == NULL) {
       goto generic_error;
     }
-    printf("\ncococococ hi hi\n");
-    if (received_response->message == NULL) {
-      printf("is it null?\n\n");
-    }
+    // printf("\ncococococ hi hi\n");
+    // if (received_response->message == NULL) {
+    //   printf("message is null?\n\n");
+    // }
+    // if (received_response->type != NULL) {
+    //   printf("NOT NULL TYPE!!\n");
+    //   if (received_response->type == GETRESP)
+    //     printf("1");
+    //   if (received_response->type == RESP)
+    //     printf("2");
+    // }
     if (received_response->message == NULL || strcmp(received_response->message, MSG_SUCCESS) != 0) {
       printf("\nconrad what's up yo in the else case\n");
       respmsg->type = RESP;
       respmsg->message = received_response->message;
+    // if (received_response->type != GETRESP) {
+    //   respmsg->type = RESP;
+    //   respmsg->message = received_response->message;
     } else {
       printf("\ns;adkfja;sldfjal; what's up yo\n");
       respmsg->key = (char *) malloc(sizeof(char) * (strlen(received_response->key) + 1));
