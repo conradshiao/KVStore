@@ -82,11 +82,14 @@ int kvmessage_send(kvmessage_t *message, int sockfd) {
  * fields were allocated using malloc/calloc (which will be the case for a
  * message created using kvmessage_parse). */
 void kvmessage_free(kvmessage_t *message) {
-  if (message->key)
-    free(message->key);
-  if (message->value)
-    free(message->value);
-  if (message->message)
-    free(message->message);
-  free(message);
+  // OUR CODE HERE to allow free-ing of null messages
+  if (message != NULL) {
+    if (message->key)
+      free(message->key);
+    if (message->value)
+      free(message->value);
+    if (message->message)
+      free(message->message);
+    free(message);
+  }
 }
