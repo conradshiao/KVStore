@@ -2,8 +2,6 @@
 #define __WQ__
 
 #include <pthread.h>
-// OUR CODE HERE
-#include <semaphore.h>
 
 /* WQ defines a work queue which will be used to store jobs which are waiting to be processed.
  *

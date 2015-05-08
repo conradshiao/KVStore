@@ -148,9 +148,8 @@ int tpcmaster_get_cached(void) {
   pthread_rwlock_unlock(cachelock);
   ASSERT_EQUAL(ret, 0);
   reqmsg.key = "KEY";
-  reqmsg.value = "VAL";
   tpcmaster_handle_get(&testmaster, &reqmsg, &respmsg);
-  ASSERT_STRING_EQUAL(respmsg.message, MSG_SUCCESS);
+  ASSERT_EQUAL(respmsg.type, GETRESP);
   ASSERT_STRING_EQUAL(respmsg.key, "KEY");
   ASSERT_STRING_EQUAL(respmsg.value, "VAL");
   return 1;
@@ -165,7 +164,6 @@ void tpcmaster_dummy_handle(tpcmaster_t *master, int sockfd, callback_t callback
       resp.type = GETRESP;
       resp.key = "KEY";
       resp.value = "VAL";
-      resp.message = MSG_SUCCESS;
       break;
     case PUT_SIMPLE: case DEL_SIMPLE:
       if (req->type == PUTREQ || req->type == DELREQ)
@@ -213,7 +211,7 @@ void *tpcmaster_thread(void *aux) {
 int tpcmaster_get_simple(void) {
   current_test = GET_SIMPLE;
   tpcmaster_run_test();
-  ASSERT_STRING_EQUAL(respmsg.message, MSG_SUCCESS);
+  ASSERT_EQUAL(respmsg.type, GETRESP);
   ASSERT_STRING_EQUAL(respmsg.value, "VAL");
   return 1;
 }
@@ -235,7 +233,7 @@ int tpcmaster_del_simple(void) {
 int tpcmaster_get_replica(void) {
   current_test = GET_REPLICA;
   tpcmaster_run_test();
-  ASSERT_STRING_EQUAL(respmsg.message, MSG_SUCCESS);
+  ASSERT_EQUAL(respmsg.type, GETRESP);
   ASSERT_STRING_EQUAL(respmsg.value, "VAL");
   return 1;
 }

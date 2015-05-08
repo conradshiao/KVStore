@@ -38,7 +38,7 @@ typedef struct {
  * For messages of type DELREQ, data holds the relevant key.
  * For messages of type PUTREQ, data holds both the key and the value, in the
  * form:
- *   key_string \0 value_string \0
+ *   key_string \0value_string \0
  *   (that is, two concatenated and null terminated strings) */
 typedef struct {
   msgtype_t type;          /* The type of message this log entry represents. */
