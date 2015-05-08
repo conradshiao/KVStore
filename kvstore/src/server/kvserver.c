@@ -33,8 +33,8 @@ int kvserver_init(kvserver_t *server, char *dirname, unsigned int num_sets,
   ret = kvstore_init(&server->store, dirname);
   if (ret < 0) return ret;
   if (use_tpc) {
-      ret = tpclog_init(&server->log, dirname);
-      if (ret < 0) return ret;
+    ret = tpclog_init(&server->log, dirname);
+    if (ret < 0) return ret;
   }
   server->hostname = malloc(strlen(hostname) + 1);
   if (server->hostname == NULL)
@@ -46,8 +46,7 @@ int kvserver_init(kvserver_t *server, char *dirname, unsigned int num_sets,
   server->handle = kvserver_handle;
   // OUR CODE HERE
   server->msg = NULL;
-  server->state = TPC_INIT;
-  //gdb: what is server->state before this line above?
+  server->state = TPC_READY;
   return 0;
 }
 
@@ -76,17 +75,16 @@ int kvserver_register_master(kvserver_t *server, int sockfd) {
   }
   sprintf(reqmsg->value, "%d", server->port);
   kvmessage_send(reqmsg, sockfd);
-  kvmessage_t *response;
-  if ((response = kvmessage_parse(sockfd)) == NULL) {
-    return -1;
-  } else if (strcmp(MSG_SUCCESS, response->message) != 0) {
-    kvmessage_free(response);
-    return -1;
+  kvmessage_t *response = kvmessage_parse(sockfd);
+  int ret;
+  if (response == NULL || response->message == NULL || strcmp(response->message, MSG_SUCCESS) != 0) {
+    ret = -1;
   } else {
+    ret = 0;
     server->state = TPC_READY;
-    kvmessage_free(response);
-    return 0;
   }
+  kvmessage_free(response);
+  return ret;
 }
 
 /* Attempts to get KEY from SERVER. Returns 0 if successful, else a negative
@@ -96,8 +94,15 @@ int kvserver_register_master(kvserver_t *server, int sockfd) {
 int kvserver_get(kvserver_t *server, char *key, char **value) {
   // OUR CODE HERE
   int ret;
-  if (kvcache_get(&server->cache, key, value) == 0)
+  pthread_rwlock_t *lock = kvcache_getlock(&server->cache, key);
+  if (lock == NULL)
+    return ERRKEYLEN;
+  pthread_rwlock_rdlock(lock);
+  if (kvcache_get(&server->cache, key, value) == 0) {
+    pthread_rwlock_unlock(lock);
     return 0;
+  }
+  pthread_rwlock_unlock(lock);
   if ((ret = kvstore_get(&server->store, key, value)) < 0)
     return ret;
   return kvcache_put(&server->cache, key, *value); // what happens if this is unsuccessful?
@@ -116,8 +121,15 @@ int kvserver_put_check(kvserver_t *server, char *key, char *value) {
 int kvserver_put(kvserver_t *server, char *key, char *value) {
   // OUR CODE HERE
   int success;
-  if ((success = kvcache_put(&server->cache, key, value)) < 0)
+  pthread_rwlock_t *lock = kvcache_getlock(&server->cache, key);
+  if (lock == NULL)
+    return ERRKEYLEN;
+  pthread_rwlock_wrlock(lock);
+  if ((success = kvcache_put(&server->cache, key, value)) < 0) {
+    pthread_rwlock_unlock(lock);
     return success;
+  }
+  pthread_rwlock_unlock(lock);
   return kvstore_put(&server->store, key, value);
 }
 
@@ -134,8 +146,15 @@ int kvserver_del_check(kvserver_t *server, char *key) {
 int kvserver_del(kvserver_t *server, char *key) {
   // OUR CODE HERE
   int ret;
-  if ((ret = kvstore_del(&server->store, key)) < 0)
+  pthread_rwlock_t *lock = kvcache_getlock(&server->cache, key);
+  if (lock == NULL)
+    return ERRKEYLEN;
+  pthread_rwlock_wrlock(lock);
+  if ((ret = kvstore_del(&server->store, key)) < 0) {
+    pthread_rwlock_unlock(lock);
     return ret;
+  }
+  pthread_rwlock_unlock(lock);
   kvcache_del(&server->cache, key);
   return 0;
 }
@@ -162,55 +181,60 @@ char *kvserver_get_info_message(kvserver_t *server) {
  * Checkpoint 2 only. */
 void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *respmsg) {
   // OUR CODE HERE
-  printf("i am in tpc mode\n");
   int error = -1;
+  bool initial_check = true;
   if (respmsg == NULL) {
     return;
   } else if (reqmsg == NULL || server == NULL) {
     goto unsuccessful_request;
   } else if (reqmsg->key == NULL) {
     if (reqmsg->type == GETREQ || reqmsg->type == PUTREQ || reqmsg->type == DELREQ) {
-      error = ERRNOKEY;
       goto unsuccessful_request;
     }
-  } else if (reqmsg->value == NULL && reqmsg->type == PUTREQ) {
+  } else if (reqmsg->value == NULL && reqmsg->type == PUTREQ) { //FIXME: README: not sure about this one...
+    goto unsuccessful_request;
+  } else if (server->state == TPC_INIT) {
+    initial_check = false;
     goto unsuccessful_request;
   }
 
-  // printf("\n\nlkfjaslkdfjlaksdfj current state of server is what though???\n");
-
+  initial_check = false;
   switch (reqmsg->type) {
 
     case GETREQ:
-      // printf("a;skldf;alsdfjas;ldfjas;ldkfjas;ldfja\n");
       if ((error = kvserver_get(server, reqmsg->key, &reqmsg->value)) == 0) {
-        // printf("i'm in kvserver get handle case\n");
         respmsg->type = GETRESP;
         respmsg->key = reqmsg->key;
         respmsg->value = reqmsg->value;
-        respmsg->message = MSG_SUCCESS;
+        // respmsg->message = MSG_SUCCESS;
       } else {
-        respmsg->type = RESP;
-        respmsg->message = GETMSG(error);
+        goto unsuccessful_request;
       }
       break;
 
     case PUTREQ:
       //FIXME: OLIVIA: this is a hacking way...
-      if (respmsg->type == VOTE_COMMIT) {   // this is to check that prev REQ has been committed
-        respmsg->type = RESP;
-        respmsg->message = ERRMSG_INVALID_REQUEST;
-        return; 
+      // if (respmsg->type == VOTE_COMMIT) {   // this is to check that prev REQ has been committed
+      //   respmsg->type = RESP;
+      //   respmsg->message = ERRMSG_INVALID_REQUEST;
+      //   return; 
+      // }
+      if (server->state == TPC_WAIT) {
+        initial_check = true;
+        goto unsuccessful_request;
       }
+      server->state = TPC_WAIT;
       tpclog_log(&server->log, PUTREQ, reqmsg->key, reqmsg->value);
       if ((error = kvserver_put_check(server, reqmsg->key, reqmsg->value)) == 0) {
         if ((error = copy_and_store_kvmessage(server, reqmsg)) == -1) {
           respmsg->type = RESP;
           respmsg->message = ERRMSG_GENERIC_ERROR;
+          server->state = TPC_READY;
           return;
         }
         respmsg->type = VOTE_COMMIT;
       } else {
+        server->state = TPC_READY;
         respmsg->type = VOTE_ABORT;
         respmsg->message = GETMSG(error);
       }
@@ -218,43 +242,55 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
 
     case DELREQ:
       tpclog_log(&server->log, DELREQ, reqmsg->key, reqmsg->value);
+      if (server->state == TPC_WAIT) {
+        initial_check = true;
+        goto unsuccessful_request;
+      }
+      server->state = TPC_WAIT;
       // gdb: null key, what does log.data look like?
       if ((error = kvserver_del_check(server, reqmsg->key)) == 0) {
         if ((error = copy_and_store_kvmessage(server, reqmsg)) == -1) {
           respmsg->type = RESP;
           respmsg->message = ERRMSG_GENERIC_ERROR;
+          server->state = TPC_READY;
           return;
         }
-        if (respmsg->type == VOTE_COMMIT) {
-          respmsg->type = RESP;
-          respmsg->message = ERRMSG_INVALID_REQUEST;
-          return; 
-        }
+        // if (respmsg->type == VOTE_COMMIT) {
+        //   respmsg->type = RESP;
+        //   respmsg->message = ERRMSG_INVALID_REQUEST;
+        //   return; 
+        // }
         respmsg->type = VOTE_COMMIT;
       } else {
+        server->state = TPC_READY;
         respmsg->type = VOTE_ABORT;
         respmsg->message = GETMSG(error); // need this field in tests.. specs forgot to say
       }
       break;
 
     case COMMIT:
+      server->state = TPC_READY;
       tpclog_log(&server->log, COMMIT, reqmsg->key, reqmsg->value);
       // what should i commit here????
-      // respmsg->type = ACK;
       if (server->msg->type == PUTREQ) {
         if ((error = kvserver_put(server, server->msg->key, server->msg->value)) == 0) {
           respmsg->type = ACK;
-        } // else it's an error and we don't want to send.. anything?
+        } else {
+          goto unsuccessful_request;
+        }
       } else if (server->msg->type == DELREQ) {
         if ((error = kvserver_del(server, server->msg->key)) == 0) {
           respmsg->type = ACK;
-        } // same as above case...
+        } else {
+          goto unsuccessful_request;
+        }
       } else {
         printf("\nUNEXPECTED ERROR: WHOA WHOA WHO WAHO WHOA SLDKF;ASDFJAL;SFD WHY DOE\n");
       }
       break;
 
     case ABORT:
+      server->state = TPC_READY;
       tpclog_log(&server->log, ABORT, reqmsg->key, reqmsg->value);
       respmsg->type = ACK;
       break;
@@ -270,7 +306,7 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
   /* All unsuccessful requests will be handled in the same manner. */
   unsuccessful_request:
     respmsg->type = RESP;
-    respmsg->message = GETMSG(error); 
+    respmsg->message = (initial_check) ? ERRMSG_INVALID_REQUEST : GETMSG(error);
 }
 
 /* Handles an incoming kvmessage REQMSG, and populates the appropriate fields
@@ -279,21 +315,24 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
  * message. See the spec for details on logic and error messages. */
 void kvserver_handle_no_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *respmsg) {
   // OUR CODE HERE
-  int error = -1;
-  printf("\ni am in no_tpc mode\n");
+  bool initial_check = true;
   if (respmsg == NULL) {
     return;
   } else if (reqmsg == NULL || server == NULL) {
     goto unsuccessful_request;
   } else if (reqmsg->key == NULL) {
     if (reqmsg->type == GETREQ || reqmsg->type == PUTREQ || reqmsg->type == DELREQ) {
-      error = ERRNOKEY;
       goto unsuccessful_request;
     }
-  } else if (reqmsg->value == NULL && reqmsg->type == PUTREQ) {
+  } else if (reqmsg->value == NULL && reqmsg->type == PUTREQ) { //FIXME: README: not sure about this one...
+    goto unsuccessful_request;
+  } else if (server->state == TPC_INIT) {
+    initial_check = false;
     goto unsuccessful_request;
   }
 
+  initial_check = false;
+  int error = -1;
   switch (reqmsg->type) {
 
     case GETREQ:
@@ -340,14 +379,13 @@ void kvserver_handle_no_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t
 /* All unsuccessful requests will be handled in the same manner. */
   unsuccessful_request:
     respmsg->type = RESP;
-    respmsg->message = GETMSG(error); 
+    respmsg->message = (initial_check) ? ERRMSG_INVALID_REQUEST : GETMSG(error);
 }
 /* Generic entrypoint for this SERVER. Takes in a socket on SOCKFD, which
  * should already be connected to an incoming request. Processes the request
  * and sends back a response message.  This should call out to the appropriate
  * internal handler. */
 void kvserver_handle(kvserver_t *server, int sockfd, void *extra) {
-  printf("\nam I in here nowwwwwwwwwww?\n");
   kvmessage_t *reqmsg, *respmsg;
   respmsg = calloc(1, sizeof(kvmessage_t));
   reqmsg = kvmessage_parse(sockfd);
@@ -381,9 +419,9 @@ void kvserver_handle(kvserver_t *server, int sockfd, void *extra) {
  *
  * Checkpoint 2 only. */
 int kvserver_rebuild_state(kvserver_t *server) {
-  // if (server->state == TPC_INIT) {
-  //   printf("WHAT WHY THOUGH SLKFDJSLDFJSLDKF\n");
-  // }
+  if (server->state == TPC_INIT) {
+    return -1;
+  }
   if (server == NULL) {
     return -1;
   }

@@ -29,7 +29,7 @@ struct kvcacheentry {
   UT_hash_handle hh;            /* Handle to allow ut_hash operations for the
                                    kvcacheentry hashtable in struct kvcacheset_t. */
 
-  /* These two pointers below are needed to implement a kvcacheset_t's doubly-linked kvcacheentry list. */
+  /* These pointers are needed to implement a kvcacheset_t's doubly-linked list. */
   struct kvcacheentry *prev;
   struct kvcacheentry *next;
 };
