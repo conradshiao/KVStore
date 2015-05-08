@@ -77,7 +77,7 @@ int kvserver_register_master(kvserver_t *server, int sockfd) {
   kvmessage_send(reqmsg, sockfd);
   kvmessage_t *response = kvmessage_parse(sockfd);
   int ret;
-  if (response == NULL || response->message == NULL || strcmp(response->message, MSG_SUCCESS) != 0) {
+  if (!response || !response->message || strcmp(response->message, MSG_SUCCESS) != 0) {
     ret = -1;
   } else {
     ret = 0;
@@ -95,8 +95,7 @@ int kvserver_get(kvserver_t *server, char *key, char **value) {
   // OUR CODE HERE
   int ret;
   pthread_rwlock_t *lock = kvcache_getlock(&server->cache, key);
-  if (lock == NULL)
-    return ERRKEYLEN;
+  if (lock == NULL) return ERRKEYLEN;
   pthread_rwlock_rdlock(lock);
   if (kvcache_get(&server->cache, key, value) == 0) {
     pthread_rwlock_unlock(lock);
@@ -105,7 +104,10 @@ int kvserver_get(kvserver_t *server, char *key, char **value) {
   pthread_rwlock_unlock(lock);
   if ((ret = kvstore_get(&server->store, key, value)) < 0)
     return ret;
-  return kvcache_put(&server->cache, key, *value); // what happens if this is unsuccessful?
+  pthread_rwlock_wrlock(lock);
+  ret = kvcache_put(&server->cache, key, *value); // what happens if this is unsuccessful?
+  pthread_rwlock_unlock(lock);
+  return ret;
 }
 
 /* Checks if the given KEY, VALUE pair can be inserted into this server's
@@ -122,8 +124,7 @@ int kvserver_put(kvserver_t *server, char *key, char *value) {
   // OUR CODE HERE
   int success;
   pthread_rwlock_t *lock = kvcache_getlock(&server->cache, key);
-  if (lock == NULL)
-    return ERRKEYLEN;
+  if (lock == NULL) return ERRKEYLEN;
   pthread_rwlock_wrlock(lock);
   if ((success = kvcache_put(&server->cache, key, value)) < 0) {
     pthread_rwlock_unlock(lock);
@@ -147,15 +148,14 @@ int kvserver_del(kvserver_t *server, char *key) {
   // OUR CODE HERE
   int ret;
   pthread_rwlock_t *lock = kvcache_getlock(&server->cache, key);
-  if (lock == NULL)
-    return ERRKEYLEN;
+  if (lock == NULL) return ERRKEYLEN;
   pthread_rwlock_wrlock(lock);
   if ((ret = kvstore_del(&server->store, key)) < 0) {
     pthread_rwlock_unlock(lock);
     return ret;
   }
   pthread_rwlock_unlock(lock);
-  kvcache_del(&server->cache, key);
+  kvcache_del(&server->cache, key); // if not in server's cache, that's okay
   return 0;
 }
 
@@ -191,7 +191,7 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
     if (reqmsg->type == GETREQ || reqmsg->type == PUTREQ || reqmsg->type == DELREQ) {
       goto unsuccessful_request;
     }
-  } else if (reqmsg->value == NULL && reqmsg->type == PUTREQ) { //FIXME: README: not sure about this one...
+  } else if (reqmsg->value == NULL && reqmsg->type == PUTREQ) {
     goto unsuccessful_request;
   } else if (server->state == TPC_INIT) {
     initial_check = false;
@@ -206,31 +206,23 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
         respmsg->type = GETRESP;
         respmsg->key = reqmsg->key;
         respmsg->value = reqmsg->value;
-        // respmsg->message = MSG_SUCCESS;
       } else {
         goto unsuccessful_request;
       }
       break;
 
     case PUTREQ:
-      //FIXME: OLIVIA: this is a hacking way...
-      // if (respmsg->type == VOTE_COMMIT) {   // this is to check that prev REQ has been committed
-      //   respmsg->type = RESP;
-      //   respmsg->message = ERRMSG_INVALID_REQUEST;
-      //   return; 
-      // }
       if (server->state == TPC_WAIT) {
         initial_check = true;
         goto unsuccessful_request;
       }
       server->state = TPC_WAIT;
+
       tpclog_log(&server->log, PUTREQ, reqmsg->key, reqmsg->value);
       if ((error = kvserver_put_check(server, reqmsg->key, reqmsg->value)) == 0) {
         if ((error = copy_and_store_kvmessage(server, reqmsg)) == -1) {
-          respmsg->type = RESP;
-          respmsg->message = ERRMSG_GENERIC_ERROR;
           server->state = TPC_READY;
-          return;
+          goto unsuccessful_request;
         }
         respmsg->type = VOTE_COMMIT;
       } else {
@@ -241,25 +233,18 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
       break;
 
     case DELREQ:
-      tpclog_log(&server->log, DELREQ, reqmsg->key, reqmsg->value);
       if (server->state == TPC_WAIT) {
         initial_check = true;
         goto unsuccessful_request;
       }
       server->state = TPC_WAIT;
-      // gdb: null key, what does log.data look like?
+
+      tpclog_log(&server->log, DELREQ, reqmsg->key, reqmsg->value);
       if ((error = kvserver_del_check(server, reqmsg->key)) == 0) {
         if ((error = copy_and_store_kvmessage(server, reqmsg)) == -1) {
-          respmsg->type = RESP;
-          respmsg->message = ERRMSG_GENERIC_ERROR;
           server->state = TPC_READY;
-          return;
+          goto unsuccessful_request;
         }
-        // if (respmsg->type == VOTE_COMMIT) {
-        //   respmsg->type = RESP;
-        //   respmsg->message = ERRMSG_INVALID_REQUEST;
-        //   return; 
-        // }
         respmsg->type = VOTE_COMMIT;
       } else {
         server->state = TPC_READY;
@@ -270,28 +255,24 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
 
     case COMMIT:
       server->state = TPC_READY;
-      tpclog_log(&server->log, COMMIT, reqmsg->key, reqmsg->value);
+      tpclog_log(&server->log, COMMIT, NULL, NULL);
       // what should i commit here????
       if (server->msg->type == PUTREQ) {
-        if ((error = kvserver_put(server, server->msg->key, server->msg->value)) == 0) {
-          respmsg->type = ACK;
-        } else {
+        if ((error = kvserver_put(server, server->msg->key, server->msg->value)) < 0) {
           goto unsuccessful_request;
         }
-      } else if (server->msg->type == DELREQ) {
-        if ((error = kvserver_del(server, server->msg->key)) == 0) {
-          respmsg->type = ACK;
-        } else {
+        respmsg->type = ACK;
+      } else { // type DELREQ
+        if ((error = kvserver_del(server, server->msg->key)) < 0) {
           goto unsuccessful_request;
         }
-      } else {
-        printf("\nUNEXPECTED ERROR: WHOA WHOA WHO WAHO WHOA SLDKF;ASDFJAL;SFD WHY DOE\n");
+        respmsg->type = ACK;
       }
       break;
 
     case ABORT:
       server->state = TPC_READY;
-      tpclog_log(&server->log, ABORT, reqmsg->key, reqmsg->value);
+      tpclog_log(&server->log, ABORT, NULL, NULL);
       respmsg->type = ACK;
       break;
 
@@ -324,7 +305,7 @@ void kvserver_handle_no_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t
     if (reqmsg->type == GETREQ || reqmsg->type == PUTREQ || reqmsg->type == DELREQ) {
       goto unsuccessful_request;
     }
-  } else if (reqmsg->value == NULL && reqmsg->type == PUTREQ) { //FIXME: README: not sure about this one...
+  } else if (reqmsg->value == NULL && reqmsg->type == PUTREQ) {
     goto unsuccessful_request;
   } else if (server->state == TPC_INIT) {
     initial_check = false;
@@ -400,8 +381,6 @@ void kvserver_handle(kvserver_t *server, int sockfd, void *extra) {
     server_handler(server, reqmsg, respmsg);
   }
   kvmessage_send(respmsg, sockfd);
-  // OUR CODE HERE: I think we don't need to comment this out anymore... lol
-  /* The tpcmaster needs to keep this kvmessage -- freeing is on him now. */
   if (reqmsg != NULL)
     kvmessage_free(reqmsg);
 }
@@ -419,13 +398,11 @@ void kvserver_handle(kvserver_t *server, int sockfd, void *extra) {
  *
  * Checkpoint 2 only. */
 int kvserver_rebuild_state(kvserver_t *server) {
-  if (server->state == TPC_INIT) {
-    return -1;
-  }
-  if (server == NULL) {
+  if (server == NULL || server->state == TPC_INIT) {
     return -1;
   }
   tpclog_iterate_begin(&server->log);
+  bool commit = false;
   logentry_t *target_cmd = NULL;
   while (tpclog_iterate_has_next(&server->log)) {
     logentry_t *entry = tpclog_iterate_next(&server->log);
@@ -451,7 +428,12 @@ int kvserver_rebuild_state(kvserver_t *server) {
         }
         val++;
         strcpy(value, val);
-        kvserver_put(server, key, value);
+        int check = kvserver_put(server, key, value);
+        free(key);
+        free(value);
+        if (check < 0) {
+          return -1;
+        }
       } else { // DELREQ here
         char *key = malloc(sizeof(char) * (target_cmd->length + 1)); // + 1 to be safe. idk if they include null terminator or not..
         if (key == NULL) {
@@ -459,16 +441,25 @@ int kvserver_rebuild_state(kvserver_t *server) {
         }
         strcpy(key, target_cmd->data);
         kvserver_del(server, key);
+        free(key);
       }
       target_cmd = NULL;
+      commit = true;
     } else { // entry->type == ABORT
-      target_cmd = NULL;
+      if (target_cmd->type == PUTREQ) {
+
+      } else {
+
+      }
+      commit = false;
     }
   }
 
-  if (target_cmd == NULL) {
-    tpclog_clear_log(&server->log);
-  }
+  tpclog_clear_log(&server->log);
+  // what happens it target_cmd is not null??? --> we didn't end on a commit or abort
+  // if (target_cmd == NULL && commit) {
+  //   tpclog_clear_log(&server->log);
+  // }
 
   return 0;
 }
@@ -479,32 +470,35 @@ int kvserver_clean(kvserver_t *server) {
   return kvstore_clean(&server->store);
 }
 
+// OUR CODE HERE
 /* Copies and mallocs MSG and stores it in the SERVER->msg field so that
  * phase 2 can know what operation to do from phase 1. */
 static int copy_and_store_kvmessage(kvserver_t *server, kvmessage_t *msg) {
-  /* OUR CODE HERE: We don't need to worry about freeing mallocs, because we
+  /* We don't need to worry about freeing mallocs, because we
      have kvmessage_free everytime at the beginning of this function. */
 
   (server->msg != NULL) ? kvmessage_free(server->msg) : free(server->msg);
   if ((server->msg = (kvmessage_t *) malloc(sizeof(kvmessage_t))) == NULL)
     return -1;
 
+  kvmessage_t *m = server->msg;
+
   if (msg->key != NULL) {
-    if ((server->msg->key = (char *) malloc(sizeof(char) * (strlen(msg->key) + 1))) == NULL)
+    if ((m->key = (char *) malloc(sizeof(char) * (strlen(msg->key) + 1))) == NULL)
       return -1;
-    strcpy(server->msg->key, msg->key);
+    strcpy(m->key, msg->key);
   } else {
-    server->msg->key = NULL;
+    m->key = NULL;
   }
 
   if (msg->value != NULL) {
-    if ((server->msg->value = (char *) malloc(sizeof(char) * (strlen(msg->value) + 1))) == NULL)
+    if ((m->value = (char *) malloc(sizeof(char) * (strlen(msg->value) + 1))) == NULL)
       return -1;
-    strcpy(server->msg->value, msg->value);
+    strcpy(m->value, msg->value);
   } else {
-    server->msg->value = NULL;
+    m->value = NULL;
   }
 
-  server->msg->type = msg->type;
+  m->type = msg->type;
   return 0;
 }

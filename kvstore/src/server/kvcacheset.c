@@ -9,7 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static void kvcacheentry_free(kvcacheentry *e)
+static void kvcacheentry_free(struct kvcacheentry *);
 
 /* Initializes CACHESET to hold a maximum of ELEM_PER_SET elements.
  * ELEM_PER_SET must be at least 2.
@@ -35,7 +35,9 @@ int kvcacheset_init(kvcacheset_t *cacheset, unsigned int elem_per_set) {
 int kvcacheset_get(kvcacheset_t *cacheset, char *key, char **value) {
   // OUR CODE HERE
   struct kvcacheentry *e;
+  // pthread_rwlock_rdlock(&cacheset->lock);
   HASH_FIND_STR(cacheset->entries, key, e);
+  // pthread_rwlock_unlock(&cacheset->lock);
   if (e == NULL) {
     return ERRNOKEY;
   }
@@ -130,7 +132,7 @@ void kvcacheset_clear(kvcacheset_t *cacheset) {
 
 // OUR CODE HERE
 /* Frees the kvcacheentry element and all of it's malloc()-ed fields. */
-static void kvcacheentry_free(kvcacheentry *e) {
+static void kvcacheentry_free(struct kvcacheentry *e) {
   if (e != NULL) {
     free(e->key);
     free(e->value);
