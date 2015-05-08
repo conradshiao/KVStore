@@ -305,6 +305,9 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
     if (received_response->type != GETRESP) {
       respmsg->type = RESP;
       respmsg->message = received_response->message;
+    // if (received_response->type != GETRESP) {
+    //   respmsg->type = RESP;
+    //   respmsg->message = received_response->message;
     } else {
       // printf("\ns;adkfja;sldfjal; what's up yo\n");
       respmsg->key = (char *) malloc(sizeof(char) * (strlen(received_response->key) + 1));
