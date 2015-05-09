@@ -163,8 +163,8 @@ int server_run(const char *hostname, int port, server_t *server,
   free(server_helper_ptr);
   free(threads);
 
-  // shutdown(sock_fd, SHUT_RDWR);
-  // close(sock_fd);
+  shutdown(sock_fd, SHUT_RDWR);
+  close(sock_fd);
   return 0;
 }
 
