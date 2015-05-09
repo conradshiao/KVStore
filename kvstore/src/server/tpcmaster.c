@@ -102,6 +102,7 @@ void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg, kvmessage_t *r
   /* This is used to determine if we want to reset master's original state,
      if we use goto upon encountering any error. */
   tpc_state_t orig_state = master->state;
+  bool failure = true;
 
   char *port = reqmsg->value;
   char *hostname = reqmsg->key;
@@ -110,10 +111,9 @@ void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg, kvmessage_t *r
 
   // Need to add 2, one for null terminator and one for ':'
   char *format_string = (char *) malloc(sizeof(char) * (port_strlen + hostname_strlen + 2));
-  if (format_string == NULL) {
-    respmsg->message = ERRMSG_GENERIC_ERROR;
-    return;
-  }
+  if (format_string == NULL)
+    goto error_message;
+
   strcpy(format_string, port);
   strcat(format_string, ":");
   strcat(format_string, hostname);
@@ -121,8 +121,6 @@ void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg, kvmessage_t *r
   free(format_string);
 
   pthread_rwlock_wrlock(&master->slave_lock);
-
-  bool failure = true;
 
   /* Check to see if slave is still in the list. */
   tpcslave_t *elt;
@@ -168,9 +166,12 @@ void tpcmaster_register(tpcmaster_t *master, kvmessage_t *reqmsg, kvmessage_t *r
     free(slave);
   unlock:
     pthread_rwlock_unlock(&master->slave_lock);
+
   /* reset to initializing state if registering last server ran into error */
   master->state = orig_state;
-  respmsg->message = (failure) ? ERRMSG_GENERIC_ERROR : MSG_SUCCESS;
+
+  error_message:
+    respmsg->message = (failure) ? ERRMSG_GENERIC_ERROR : MSG_SUCCESS;
 }
 
 // OUR CODE HERE
