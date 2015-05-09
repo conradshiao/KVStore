@@ -352,6 +352,15 @@ void tpcmaster_handle_tpc(tpcmaster_t *master, kvmessage_t *reqmsg,
     callback(NULL);
   }
 
+  /* Have to mess with master's cache if we commit. */
+  if (master->state == TPC_COMMIT) {
+    if (reqmsg->type == PUTREQ) {
+      kvcache_put(&master->cache, reqmsg->key, reqmsg->value); // it'll work if it worked on slave servers
+    } else { // DELREQ
+      kvcache_del(&master->cache, reqmsg->key);
+    }
+  }
+
   /* Setting up the global message that master will send to slave servers. */
   kvmessage_t globalmsg;
   memset(&globalmsg, 0, sizeof(kvmessage_t));
