@@ -17,6 +17,7 @@
 #define PORT_NUM_LENGTH 16
 
 static int copy_and_store_kvmessage(kvserver_t *server, kvmessage_t *msg);
+static int rebuild_kvmessage(kvserver_t *server, logentry_t *e, bool put);
 
 /* Initializes a kvserver. Will return 0 if successful, or a negative error
  * code if not. DIRNAME is the directory which should be used to store entries
@@ -402,65 +403,60 @@ int kvserver_rebuild_state(kvserver_t *server) {
     return -1;
   }
   tpclog_iterate_begin(&server->log);
-  bool commit = false;
-  logentry_t *target_cmd = NULL;
+  logentry_t *prev = NULL, *next = NULL;
   while (tpclog_iterate_has_next(&server->log)) {
-    logentry_t *entry = tpclog_iterate_next(&server->log);
-    if (entry->type == PUTREQ || entry->type == DELREQ) {
-      target_cmd = entry;
-    } else if (entry->type == COMMIT) {
-      if (target_cmd->type == PUTREQ) {
-        int key_size = strlen(target_cmd->data) + 1;
-        char *key = malloc(sizeof(char) * key_size);
-        if (key == NULL) {
-          return -1;
-        }
-        strcpy(key, target_cmd->data);
-
-        char *value = malloc(sizeof(char) * (target_cmd->length - key_size));
-        if (value == NULL) {
-          free(key);
-          return -1;
-        }
-        char *val = target_cmd->data;
-        while (*val != '\0') {
-          val++;
-        }
-        val++;
-        strcpy(value, val);
-        int check = kvserver_put(server, key, value);
-        free(key);
-        free(value);
-        if (check < 0) {
-          return -1;
-        }
-      } else { // DELREQ here
-        char *key = malloc(sizeof(char) * (target_cmd->length + 1)); // + 1 to be safe. idk if they include null terminator or not..
-        if (key == NULL) {
-          return -1;
-        }
-        strcpy(key, target_cmd->data);
-        kvserver_del(server, key);
-        free(key);
-      }
-      target_cmd = NULL;
-      commit = true;
-    } else { // entry->type == ABORT
-      if (target_cmd->type == PUTREQ) {
-
-      } else {
-
-      }
-      commit = false;
-    }
+    prev = next;
+    next = tpclog_iterate_next(&server->log);
   }
+  server->msg = (kvmessage_t *) malloc(sizeof(kvmessage_t));
+  if (server->msg == NULL)
+    return -1;
+  if (prev != NULL && next->type == COMMIT) {
+    server->state = TPC_READY;
+    if (prev->type == PUTREQ) {
+      if (rebuild_kvmessage(server, prev, true) == -1) {
+        return -1;
+      }
+      kvserver_put(server, server->msg->key, server->msg->value);
+    } else if (prev->type == DELREQ) {
+      if (rebuild_kvmessage(server, prev, false) == -1) {
+        return -1;
+      }
+      kvserver_del(server, server->msg->key);
+    }
+  } else if (next->type == ABORT) { // might want to avoid commiting very first time with a one-time use bool
+    server->state = TPC_READY;
+    if (prev != NULL && rebuild_kvmessage(server, prev, prev->type == PUTREQ) == -1)
+      return -1;
+  } else {
+    server->state = TPC_WAIT;
+    if (rebuild_kvmessage(server, next, next->type == PUTREQ) == -1)
+      return -1;
+  }
+  return tpclog_clear_log(&server->log);
+}
 
-  tpclog_clear_log(&server->log);
-  // what happens it target_cmd is not null??? --> we didn't end on a commit or abort
-  // if (target_cmd == NULL && commit) {
-  //   tpclog_clear_log(&server->log);
-  // }
-
+static int rebuild_kvmessage(kvserver_t *server, logentry_t *e, bool put) {
+  server->msg = (kvmessage_t *) malloc(sizeof(kvmessage_t));
+  if (server->msg == NULL)
+    return -1;
+  server->msg->type = e->type;
+  int key_size = strlen(e->data) + 1;
+  server->msg->key = malloc(sizeof(char) * key_size);
+  if (server->msg->key == NULL)
+    return -1;
+  strcpy(server->msg->key, e->data);
+  if (put) {
+    server->msg->value = malloc(sizeof(char) * (e->length - key_size));
+    if (server->msg->value == NULL) {
+      free(server->msg->key);
+      return -1;
+    }
+    char *val = e->data;
+    while (*val != '\0') val++;
+    val++;
+    strcpy(server->msg->value, val);   
+  }
   return 0;
 }
 
@@ -476,10 +472,10 @@ int kvserver_clean(kvserver_t *server) {
 static int copy_and_store_kvmessage(kvserver_t *server, kvmessage_t *msg) {
   /* We don't need to worry about freeing mallocs, because we
      have kvmessage_free everytime at the beginning of this function. */
-
-  (server->msg != NULL) ? kvmessage_free(server->msg) : free(server->msg);
-  if ((server->msg = (kvmessage_t *) malloc(sizeof(kvmessage_t))) == NULL)
+  kvmessage_free(server->msg);
+  if ((server->msg = (kvmessage_t *) malloc(sizeof(kvmessage_t))) == NULL) {
     return -1;
+  }
 
   kvmessage_t *m = server->msg;
 
