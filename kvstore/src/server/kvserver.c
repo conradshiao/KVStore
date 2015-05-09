@@ -405,13 +405,21 @@ int kvserver_rebuild_state(kvserver_t *server) {
   tpclog_iterate_begin(&server->log);
   logentry_t *prev = NULL, *next = NULL;
   while (tpclog_iterate_has_next(&server->log)) {
-    prev = next;
     next = tpclog_iterate_next(&server->log);
+    if (next->type == PUTREQ || next->type == DELREQ)
+      prev = next;
   }
+  if (prev == NULL && next == NULL) { // log was empty
+    return 0;
+  } else if (prev == NULL) {
+    prev = next;
+  }
+
   server->msg = (kvmessage_t *) malloc(sizeof(kvmessage_t));
   if (server->msg == NULL)
     return -1;
-  if (prev != NULL && next->type == COMMIT) {
+
+  if (next->type == COMMIT) {
     server->state = TPC_READY;
     if (prev->type == PUTREQ) {
       if (rebuild_kvmessage(server, prev, true) == -1) {
