@@ -243,7 +243,10 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
 
   char *value;
   kvmessage_t *received_response;
+  pthread_rwlock_t *lock = kvcache_getlock(&master->cache, reqmsg->key);
+  pthread_rwlock_rdlock(lock);
   if (kvcache_get(&master->cache, reqmsg->key, &value) == 0) {
+    pthread_rwlock_unlock(lock);
     if ((respmsg->key = (char *) malloc(sizeof(char) * (strlen(reqmsg->key) + 1))) == NULL) {
       goto generic_error;
     }
@@ -255,6 +258,7 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
     free(value); // we malloc()-ed the value, so we have to free it
     respmsg->type = GETRESP;
   } else {
+    pthread_rwlock_unlock(lock);
     tpcslave_t *slave = tpcmaster_get_primary(master, reqmsg->key);
     bool successful_connection = false;
     int i, fd;
@@ -289,7 +293,9 @@ void tpcmaster_handle_get(tpcmaster_t *master, kvmessage_t *reqmsg,
       strcpy(respmsg->value, received_response->value);
       respmsg->type = received_response->type; // GETRESP
       respmsg->message = MSG_SUCCESS;
+      pthread_rwlock_wrlock(lock);
       kvcache_put(&master->cache, respmsg->key, respmsg->value);
+      pthread_rwlock_unlock(lock);
     }
     free(received_response);
   }
@@ -354,10 +360,15 @@ void tpcmaster_handle_tpc(tpcmaster_t *master, kvmessage_t *reqmsg,
 
   /* Have to mess with master's cache if we commit. */
   if (master->state == TPC_COMMIT) {
-    if (reqmsg->type == PUTREQ) {
-      kvcache_put(&master->cache, reqmsg->key, reqmsg->value); // it'll work if it worked on slave servers
-    } else { // DELREQ
-      kvcache_del(&master->cache, reqmsg->key);
+    pthread_rwlock_t *lock = kvcache_getlock(&master->cache, reqmsg->key);
+    if (lock != NULL) {
+      pthread_rwlock_wrlock(lock);
+      if (reqmsg->type == PUTREQ) {
+        kvcache_put(&master->cache, reqmsg->key, reqmsg->value);
+      } else { // DELREQ is only other option
+        kvcache_del(&master->cache, reqmsg->key);
+      }
+      pthread_rwlock_unlock(lock);
     }
   }
 
