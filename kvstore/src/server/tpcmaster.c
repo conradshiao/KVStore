@@ -398,6 +398,13 @@ void tpcmaster_handle_tpc(tpcmaster_t *master, kvmessage_t *reqmsg,
 void tpcmaster_info(tpcmaster_t *master, kvmessage_t *reqmsg,
     kvmessage_t *respmsg) {
   // OUR CODE HERE
+  if (respmsg == NULL) {
+    return;
+  } else if (reqmsg == NULL) {
+    respmsg->type = RESP;
+    respmsg->message = ERRMSG_GENERIC_ERROR;
+  }
+  respmsg->type = INFO;
   char buf[256];
   char *info = (char *) malloc((master->slave_count * MAX_INFOLINE_LENGTH + 256) * sizeof(char));
   if (info == NULL) {
@@ -411,8 +418,10 @@ void tpcmaster_info(tpcmaster_t *master, kvmessage_t *reqmsg,
   tpcslave_t *elt;
   pthread_rwlock_rdlock(&master->slave_lock);
   CDL_FOREACH(master->slaves_head, elt) {
-    sprintf(buf, "\n{%s, %d}", elt->host, elt->port);
-    strcat(info, buf);
+    if (connect_to(elt->host, elt->port, TIMEOUT_SECONDS) != -1) {
+      sprintf(buf, "\n{%s, %d}", elt->host, elt->port);
+      strcat(info, buf);
+    }
   }
   pthread_rwlock_unlock(&master->slave_lock);
   respmsg->message = info;
