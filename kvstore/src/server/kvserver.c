@@ -257,7 +257,6 @@ void kvserver_handle_tpc(kvserver_t *server, kvmessage_t *reqmsg, kvmessage_t *r
     case COMMIT:
       server->state = TPC_READY;
       tpclog_log(&server->log, COMMIT, NULL, NULL);
-      // what should i commit here????
       if (server->msg->type == PUTREQ) {
         if ((error = kvserver_put(server, server->msg->key, server->msg->value)) < 0) {
           goto unsuccessful_request;
