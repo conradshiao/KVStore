@@ -14,7 +14,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-#define PORT_NUM_LENGTH 16
+#define PORT_NUM_LENGTH 16 // Used to help malloc our registration string with this server
 
 static int copy_and_store_kvmessage(kvserver_t *server, kvmessage_t *msg);
 static int rebuild_kvmessage(kvserver_t *server, logentry_t *e, bool put);

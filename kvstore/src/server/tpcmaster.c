@@ -12,9 +12,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_INFOLINE_LENGTH 256
+#define MAX_INFOLINE_LENGTH 256 // used to help handle an info request
 
-#define TIMEOUT_SECONDS 2
+#define TIMEOUT_SECONDS 2 // amount of timeout we will wait for a slave response
 
 static int port_cmp(tpcslave_t *a, tpcslave_t *b);
 static void sort_slaves_list(tpcmaster_t *master, bool force_sort);
