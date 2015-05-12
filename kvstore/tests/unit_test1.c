@@ -13,11 +13,17 @@ static kvcacheset_t *get_cache_set(kvcache_t *cache, char *key);
 
 kvcache_t testcache;
 
+/* This file contains four unit tests. Please see below for detail. */
+
+/* Tests the initialization of the kvcache. */
 int unit1_test_init() {
   kvcache_init(&testcache, 2, 2);
   return 0;
 }
 
+/* This test puts a key value pair in and then attempts to overide it,
+ * and finally tries to get the new value.
+ */
 int kvcache_put_overwrite() {
   kvcache_init(&testcache, 2, 2);
   char *retval;
@@ -32,6 +38,11 @@ int kvcache_put_overwrite() {
   return 1;
 }
 
+/* This unit test puts multiple key value pairs in and then
+ * attempts to override them both, and finally tries to get the new values.
+ * It also tests what happens if you try to get a key that
+ * does not exist in the cache (should return ERRNOKEY).
+ */
 int kvcache_put_overwrite_get_multiple() {
   char *retval;
   int ret;
@@ -65,6 +76,9 @@ int kvcache_put_overwrite_get_multiple() {
   return 1;
 }
 
+/* This unit test checks initial reference bits
+ * after kvcache_put and get_cache_set executions
+ */
 int kvcache_check_initial_refbits() {
   kvcache_init(&testcache, 2, 2);
   struct kvcacheentry *elt;
@@ -96,12 +110,14 @@ int kvcache_check_initial_refbits() {
   return 1;
 }
 
+/* Returns the the kvcacheset_t that has the key. */
 static kvcacheset_t *get_cache_set(kvcache_t *cache, char *key) {
   // OUR CODE HERE
   unsigned long index = hash(key) % cache->num_sets;
   return &cache->sets[index];
 }
 
+/* Our unit test to be printed onto the terminal for ease of seeing what fails and passes. */
 test_info_t unit1_tests[] = {
   {"Testing PUT with simple overwriting", kvcache_put_overwrite},
   {"Testing PUT and GET with interplayed overwriting", kvcache_put_overwrite_get_multiple},
