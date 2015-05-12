@@ -125,7 +125,7 @@ int main(int argc, const char *argv[]) {
     {tpcmaster_suite, "tpcmaster"},
     {endtoend_suite, "endtoend"},
     {endtoend_tpc_suite, "endtoend_tpc"},
-    {unit_test1_suite, "unit test #1 to #4"} // OUR CODE HERE
+    {unit_test1_suite, "unit tests:"} // OUR CODE HERE
   };
   int num_suites = sizeof(suite_table) / sizeof(struct suite_desc);
 

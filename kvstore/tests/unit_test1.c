@@ -15,14 +15,14 @@ kvcache_t testcache;
 
 /* This file contains four unit tests. Please see below for detail. */
 
-/* Tests the initialization of the kvcache. */
+/* Initialization of kvcache. */
 int unit1_test_init() {
   kvcache_init(&testcache, 2, 2);
   return 0;
 }
 
 /* This test puts a key value pair in and then attempts to overide it,
- * and finally tries to get the new value.
+ * and verifies that the overwritten value is the one that is now in the cache.
  */
 int kvcache_put_overwrite() {
   kvcache_init(&testcache, 2, 2);
@@ -76,9 +76,7 @@ int kvcache_put_overwrite_get_multiple() {
   return 1;
 }
 
-/* This unit test checks initial reference bits
- * after kvcache_put and get_cache_set executions
- */
+/* This unit test verifies that PUT operations set the initial refbits to false. */
 int kvcache_check_initial_refbits() {
   kvcache_init(&testcache, 2, 2);
   struct kvcacheentry *elt;
@@ -110,7 +108,7 @@ int kvcache_check_initial_refbits() {
   return 1;
 }
 
-/* Returns the the kvcacheset_t that has the key. */
+/* Private helper method used for testing */
 static kvcacheset_t *get_cache_set(kvcache_t *cache, char *key) {
   // OUR CODE HERE
   unsigned long index = hash(key) % cache->num_sets;
