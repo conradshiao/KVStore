@@ -19,6 +19,7 @@
 #include "kvserver_client_test.h"
 #include "endtoend_test.h"
 #include "endtoend_tpc_test.h"
+#include "unit_test1.h"
 
 #define TESTING_DIR "test_tmp_dir"
 
@@ -123,7 +124,8 @@ int main(int argc, const char *argv[]) {
     {tpclog_suite, "tpclog"},
     {tpcmaster_suite, "tpcmaster"},
     {endtoend_suite, "endtoend"},
-    {endtoend_tpc_suite, "endtoend_tpc"}
+    {endtoend_tpc_suite, "endtoend_tpc"},
+    {unit_test1_suite, "unit test #1"} // OUR CODE HERE
   };
   int num_suites = sizeof(suite_table) / sizeof(struct suite_desc);
 
@@ -149,6 +151,7 @@ int main(int argc, const char *argv[]) {
     kvserver_tpc_suite,
     tpcmaster_suite,
     endtoend_tpc_suite,
+    unit_test1_suite, // OUR CODE HERE
     NULL_SUITE_INFO
   };
 
