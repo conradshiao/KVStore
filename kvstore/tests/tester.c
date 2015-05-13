@@ -20,6 +20,7 @@
 #include "endtoend_test.h"
 #include "endtoend_tpc_test.h"
 #include "unit_test1.h"
+#include "kvserver_rebuild_test.h"
 
 #define TESTING_DIR "test_tmp_dir"
 
@@ -125,7 +126,8 @@ int main(int argc, const char *argv[]) {
     {tpcmaster_suite, "tpcmaster"},
     {endtoend_suite, "endtoend"},
     {endtoend_tpc_suite, "endtoend_tpc"},
-    {unit_test1_suite, "unit test #1 to #4"} // OUR CODE HERE
+    {unit_test1_suite, "unit test #1 to #4"}, // OUR CODE HERE
+    {kvserver_rebuild_suite, "kvserver rebuild state"}
   };
   int num_suites = sizeof(suite_table) / sizeof(struct suite_desc);
 
@@ -152,6 +154,7 @@ int main(int argc, const char *argv[]) {
     tpcmaster_suite,
     endtoend_tpc_suite,
     unit_test1_suite, // OUR CODE HERE
+    kvserver_rebuild_suite,
     NULL_SUITE_INFO
   };
 
