@@ -154,7 +154,7 @@ int main(int argc, const char *argv[]) {
     tpcmaster_suite,
     endtoend_tpc_suite,
     unit_test1_suite, // OUR CODE HERE
-    kvserver_rebuild_suite,
+    kvserver_rebuild_suite, // OUR CODE HERE
     NULL_SUITE_INFO
   };
 

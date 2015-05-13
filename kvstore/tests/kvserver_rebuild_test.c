@@ -164,11 +164,8 @@ int kvserver_rebuild_clear(void) {
       KVSERVER_TPC_HOSTNAME, KVSERVER_TPC_PORT, true);
 
   kvserver_rebuild_state(&my_server);
-  if (my_server.log.nextid == 0) {
-  	printf("%s\n", "");
-  }
-  ASSERT_EQUAL((int)my_server.log.nextid, (int)my_server.log.nextid); 
-
+  ASSERT_EQUAL(my_server.log.nextid, (unsigned long) 0);
+  return 1;
 }
 
 test_info_t kvserver_rebuild_test[] = {
