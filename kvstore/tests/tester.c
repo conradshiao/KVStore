@@ -20,7 +20,7 @@
 #include "endtoend_test.h"
 #include "endtoend_tpc_test.h"
 #include "unit_test1.h"
-#include "kvserver_rebuild_test.h"
+#include "our_rebuild_test.h"
 
 #define TESTING_DIR "test_tmp_dir"
 

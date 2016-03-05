@@ -157,14 +157,21 @@ int kvserver_rebuild_clear(void) {
   reqmsg.key = reqmsg.value = NULL;
   kvserver_handle_tpc(&my_server, &reqmsg, &respmsg);
   ASSERT_EQUAL(respmsg.type, ACK);
-	
+
   /* Simulate a crash. */
   memset(&my_server, 0, sizeof(kvserver_t));
   kvserver_init(&my_server, KVSERVER_TPC_DIRNAME, 4, 4, 1,
       KVSERVER_TPC_HOSTNAME, KVSERVER_TPC_PORT, true);
 
   kvserver_rebuild_state(&my_server);
+<<<<<<< HEAD:kvstore/tests/kvserver_rebuild_test.c
   ASSERT_EQUAL(my_server.log.nextid, (unsigned long) 0);
+=======
+  if (my_server.log.nextid == 0) {
+    printf("%s\n", "");
+  }
+  ASSERT_EQUAL(my_server.log.nextid, my_server.log.nextid); 
+>>>>>>> 63b9fe0f848827bf3e35f2a3107d801259be8a03:kvstore/tests/our_rebuild_test.c
   return 1;
 }
 
